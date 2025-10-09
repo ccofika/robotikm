@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Robotik Mobile",
+    "slug": "robotikm",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.robotik.mobile"
+    },
+    "android": {
+      "package": "com.robotik.mobile"
+    }
+  }
+}
