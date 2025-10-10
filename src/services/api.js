@@ -1,8 +1,8 @@
 import axios from 'axios';
 import { storage } from '../utils/storage';
 
-// API URL - ažurirajte prema vašem backend-u
-const API_URL = 'http://localhost:5000';
+// API URL - online backend
+const API_URL = 'https://robotikb-3eov.onrender.com';
 
 // Kreiraj axios instancu
 const api = axios.create({
