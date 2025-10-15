@@ -140,4 +140,17 @@ export const workOrdersAPI = {
   getUserEquipment: (id) => api.get(`/api/workorders/${id}/user-equipment`),
 };
 
+// User Equipment API
+export const userEquipmentAPI = {
+  getAll: () => api.get('/api/user-equipment'),
+  getForUser: (userId) => api.get(`/api/user-equipment/user/${userId}`),
+  getUserHistory: (userId) => api.get(`/api/user-equipment/user/${userId}/history`),
+  getForWorkOrder: (workOrderId) => api.get(`/api/user-equipment/workorder/${workOrderId}`),
+  getRemovedForWorkOrder: (workOrderId) => api.get(`/api/user-equipment/workorder/${workOrderId}/removed`),
+  add: (data) => api.post('/api/user-equipment', data),
+  remove: (id, data) => api.put(`/api/user-equipment/${id}/remove`, data),
+  removeEquipment: (id, data) => api.put(`/api/user-equipment/${id}`, data),
+  removeBySerial: (data) => api.post('/api/user-equipment/remove-by-serial', data),
+};
+
 export default api;
