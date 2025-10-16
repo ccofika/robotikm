@@ -12,6 +12,11 @@ import EquipmentConfirmationScreen from './src/screens/EquipmentConfirmationScre
 import OverdueWorkOrdersScreen from './src/screens/OverdueWorkOrdersScreen';
 import { NetworkStatusBanner, ConflictResolutionModal, SyncErrorModal } from './src/components/offline';
 
+// Import debugging utilities (samo u dev modu)
+if (__DEV__) {
+  require('./src/utils/clearSyncQueue');
+}
+
 // Inner component that has access to all contexts
 function AppContent() {
   const { user } = useContext(AuthContext);

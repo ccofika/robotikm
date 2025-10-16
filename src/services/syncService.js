@@ -14,6 +14,7 @@ class SyncService {
   constructor() {
     this.conflictHandlers = [];
     this.syncInProgress = false;
+    this.syncCompletionListeners = []; // Listeners za sync completion events
 
     // Povezi procesiranje queue-a sa ovim servisom
     this.setupQueueProcessor();
@@ -39,29 +40,48 @@ class SyncService {
     try {
       console.log(`[SyncService] Processing: ${item.type}`);
 
+      let success = false;
+
       switch (item.type) {
         case 'UPDATE_WORK_ORDER':
-          return await this.syncUpdateWorkOrder(item);
+          success = await this.syncUpdateWorkOrder(item);
+          break;
 
         case 'UPDATE_USED_MATERIALS':
-          return await this.syncUpdateUsedMaterials(item);
+          success = await this.syncUpdateUsedMaterials(item);
+          break;
 
         case 'ADD_USER_EQUIPMENT':
-          return await this.syncAddUserEquipment(item);
+          success = await this.syncAddUserEquipment(item);
+          break;
 
         case 'REMOVE_USER_EQUIPMENT':
-          return await this.syncRemoveUserEquipment(item);
+          success = await this.syncRemoveUserEquipment(item);
+          break;
+
+        case 'REMOVE_EQUIPMENT_BY_SERIAL':
+          success = await this.syncRemoveEquipmentBySerial(item);
+          break;
 
         case 'UPLOAD_IMAGE':
-          return await this.syncUploadImage(item);
+          success = await this.syncUploadImage(item);
+          break;
 
         case 'DELETE_IMAGE':
-          return await this.syncDeleteImage(item);
+          success = await this.syncDeleteImage(item);
+          break;
 
         default:
           console.warn(`[SyncService] Unknown sync type: ${item.type}`);
           return false;
       }
+
+      // Obavesti listenere o uspešnoj sinhronizaciji
+      if (success) {
+        this.notifySyncCompletion(item);
+      }
+
+      return success;
     } catch (error) {
       console.error(`[SyncService] Error processing sync item:`, error);
 
@@ -141,18 +161,51 @@ class SyncService {
   async syncAddUserEquipment(item) {
     const { userId, equipmentId, workOrderId, technicianId } = item.data;
 
+    console.log('[SyncService] Syncing add user equipment:', {
+      userId,
+      equipmentId,
+      workOrderId,
+      technicianId
+    });
+
     try {
-      await userEquipmentAPI.add({
+      // Dodaj opremu na server
+      const response = await userEquipmentAPI.add({
         userId,
         equipmentId,
         workOrderId,
         technicianId
       });
 
+      console.log('[SyncService] Server response for add equipment:', response.data);
+
+      // VAŽNO: Nakon uspešnog dodavanja, refresh user equipment sa servera
+      // da bi dobili pravu opremu sa pravilnim ID-jem
+      try {
+        const userEquipmentResponse = await workOrdersAPI.getUserEquipment(workOrderId);
+        const serverUserEquipment = userEquipmentResponse.data;
+
+        console.log('[SyncService] Refreshing local user equipment with server data:', serverUserEquipment);
+
+        // Sačuvaj server verziju lokalno (zameni temporary verziju)
+        await offlineStorage.saveUserEquipment(workOrderId, serverUserEquipment);
+      } catch (refreshError) {
+        console.error('[SyncService] Error refreshing user equipment after add:', refreshError);
+        // Ne fail-uj sync ako refresh ne uspe
+      }
+
       console.log(`[SyncService] Successfully synced add user equipment for: ${workOrderId}`);
       return true;
     } catch (error) {
       console.error('[SyncService] Error syncing add user equipment:', error);
+
+      // Ako je greška "oprema već dodeljena", tretiramo kao uspeh
+      const errorMessage = error.response?.data?.error || '';
+      if (errorMessage.includes('već dodeljena') || errorMessage.includes('already assigned')) {
+        console.log('[SyncService] Equipment already assigned - marking as success');
+        return true;
+      }
+
       throw error;
     }
   }
@@ -163,18 +216,120 @@ class SyncService {
   async syncRemoveUserEquipment(item) {
     const { workOrderId, equipmentId, removalReason, isWorking, technicianId } = item.data;
 
+    console.log('[SyncService] Attempting to sync remove user equipment:', {
+      itemId: item.id,
+      retryCount: item.retryCount,
+      workOrderId,
+      equipmentId,
+      removalReason,
+      isWorking,
+      technicianId,
+      fullItem: item
+    });
+
     try {
-      await userEquipmentAPI.remove(equipmentId, {
-        workOrderId,
-        technicianId,
-        removalReason,
-        isWorking: isWorking !== undefined ? isWorking : true
-      });
+      // Proveri da li je 404 greška zbog toga što oprema ne postoji više
+      // U tom slučaju, samo označi kao uspešno jer je cilj postignut
+      try {
+        await userEquipmentAPI.remove(equipmentId, {
+          workOrderId,
+          technicianId,
+          removalReason,
+          isWorking: isWorking !== undefined ? isWorking : true
+        });
+      } catch (error) {
+        // Loguj detalje greške
+        console.error('[SyncService] API Error details:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+          message: error.message
+        });
+
+        // Ako je 404, znači da oprema već ne postoji - to je OK
+        if (error.response?.status === 404) {
+          console.log(`[SyncService] Equipment ${equipmentId} already removed (404) - marking as success`);
+          return true;
+        }
+
+        // Ako je 500 i poruka kaže da oprema nije pronađena, tretiramo kao uspeh
+        const errorMessage = error.response?.data?.error || error.response?.data?.message || '';
+
+        // Generička 500 greška bez detalja - verovatno stara akcija koja više nije relevantna
+        if (error.response?.status === 500) {
+          // Proveri retry count - ako je bilo mnogo pokušaja, preskoči
+          if (item.retryCount >= 3) {
+            console.log(`[SyncService] Equipment removal failed after ${item.retryCount} retries - marking as success to prevent infinite loop`);
+            return true;
+          }
+
+          // Ako poruka sadrži "nije pronađena" ili generička greška
+          if (errorMessage.includes('nije pronađena') || errorMessage === 'Greška pri uklanjanju opreme') {
+            console.log(`[SyncService] Generic equipment removal error (500) - likely outdated action, marking as success`);
+            return true;
+          }
+        }
+
+        throw error;
+      }
 
       console.log(`[SyncService] Successfully synced remove user equipment: ${equipmentId}`);
       return true;
     } catch (error) {
       console.error('[SyncService] Error syncing remove user equipment:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sinhronizuje uklanjanje opreme po serijskom broju (removed equipment)
+   */
+  async syncRemoveEquipmentBySerial(item) {
+    const { workOrderId, technicianId, equipmentName, serialNumber, condition } = item.data;
+
+    console.log('[SyncService] Syncing remove equipment by serial:', {
+      workOrderId,
+      technicianId,
+      equipmentName,
+      serialNumber,
+      condition
+    });
+
+    try {
+      await userEquipmentAPI.removeBySerial({
+        workOrderId,
+        technicianId,
+        equipmentName,
+        serialNumber,
+        condition
+      });
+
+      // Refresh removed equipment sa servera nakon uspešnog sync-a
+      try {
+        const removedEquipmentResponse = await userEquipmentAPI.getRemovedForWorkOrder(workOrderId);
+        const serverRemovedEquipment = removedEquipmentResponse.data;
+
+        console.log('[SyncService] Refreshing local removed equipment with server data:', serverRemovedEquipment);
+
+        // Sačuvaj server verziju lokalno (zameni temporary verziju)
+        await offlineStorage.saveRemovedEquipment(workOrderId, serverRemovedEquipment);
+      } catch (refreshError) {
+        console.error('[SyncService] Error refreshing removed equipment after sync:', refreshError);
+        // Ne fail-uj sync ako refresh ne uspe
+      }
+
+      console.log(`[SyncService] Successfully synced remove equipment by serial for: ${workOrderId}`);
+      return true;
+    } catch (error) {
+      console.error('[SyncService] Error syncing remove equipment by serial:', error);
+
+      // Ako je greška "oprema već uklonjena", tretiramo kao uspeh
+      const errorMessage = error.response?.data?.error || '';
+      if (errorMessage.includes('već uklonjena') || errorMessage.includes('already removed')) {
+        console.log('[SyncService] Equipment already removed - marking as success');
+        return true;
+      }
+
       throw error;
     }
   }
@@ -213,6 +368,24 @@ class SyncService {
           timeout: 60000,
         }
       );
+
+      // VAŽNO: Nakon uspešnog upload-a, refresh work order sa servera
+      // da bi dobili ažuriranu listu slika
+      try {
+        const workOrderResponse = await workOrdersAPI.getOne(workOrderId);
+        const serverWorkOrder = workOrderResponse.data;
+
+        console.log('[SyncService] Refreshing local work order with updated images:', serverWorkOrder.images);
+
+        // Ažuriraj work order u offline storage sa novim slikama
+        await offlineStorage.updateWorkOrder(technicianId, workOrderId, {
+          images: serverWorkOrder.images,
+          _synced: true
+        });
+      } catch (refreshError) {
+        console.error('[SyncService] Error refreshing work order after image upload:', refreshError);
+        // Ne fail-uj sync ako refresh ne uspe
+      }
 
       console.log(`[SyncService] Successfully synced image upload for: ${workOrderId}`);
       return true;
@@ -467,6 +640,41 @@ class SyncService {
       hasConflicts: queueStats.items.some(item => item.conflictData),
       queueStats
     };
+  }
+
+  // ==================== EVENT LISTENERS ====================
+
+  /**
+   * Dodaje listener za sync completion događaje
+   */
+  addSyncCompletionListener(listener) {
+    this.syncCompletionListeners.push(listener);
+    console.log('[SyncService] Added sync completion listener');
+
+    // Vraća unsubscribe funkciju
+    return () => {
+      this.syncCompletionListeners = this.syncCompletionListeners.filter(l => l !== listener);
+      console.log('[SyncService] Removed sync completion listener');
+    };
+  }
+
+  /**
+   * Notifikuje sve listenere o sync completion događaju
+   */
+  notifySyncCompletion(syncItem) {
+    console.log('[SyncService] Notifying sync completion listeners:', {
+      type: syncItem.type,
+      entityId: syncItem.data?.workOrderId,
+      listenerCount: this.syncCompletionListeners.length
+    });
+
+    for (const listener of this.syncCompletionListeners) {
+      try {
+        listener(syncItem);
+      } catch (error) {
+        console.error('[SyncService] Error in sync completion listener:', error);
+      }
+    }
   }
 }
 

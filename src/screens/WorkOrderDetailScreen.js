@@ -11,11 +11,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 import { useOffline } from '../context/OfflineContext';
 import dataRepository from '../services/dataRepository';
+import { userEquipmentAPI } from '../services/api';
+import syncService from '../services/syncService';
 import { VStack } from '../components/ui/vstack';
 import { HStack } from '../components/ui/hstack';
 import { Box } from '../components/ui/box';
 import { Card } from '../components/ui/card';
-import { Text } from '../components/ui/text';
+import { Text } from '../components/ui/Text';
 import { Heading } from '../components/ui/heading';
 import { Center } from '../components/ui/center';
 import { Spinner } from '../components/ui/spinner';
@@ -31,7 +33,8 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [comment, setComment] = useState('');
-  const [images, setImages] = useState([]); // Local images to upload
+  const [images, setImages] = useState([]); // Local images ready to upload
+  const [pendingSyncImages, setPendingSyncImages] = useState([]); // Images waiting for sync (offline)
   const [uploadedImages, setUploadedImages] = useState([]); // Images from backend
 
   // Equipment & Materials
@@ -71,6 +74,35 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   useEffect(() => {
     fetchWorkOrder();
     requestPermissions();
+  }, [orderId]);
+
+  // Subscribe to sync completion events to auto-refresh data
+  useEffect(() => {
+    console.log('[WorkOrderDetail] Setting up sync completion listener');
+
+    const unsubscribe = syncService.addSyncCompletionListener((syncItem) => {
+      console.log('[WorkOrderDetail] Sync completed:', syncItem.type, syncItem.data);
+
+      // Refresh data kada se sinhronizuje bilo šta za ovaj work order
+      if (syncItem.data?.workOrderId === orderId) {
+        console.log('[WorkOrderDetail] Refreshing work order data after sync');
+
+        // Ako je sinhronizovan image upload, očisti pending sync slike
+        if (syncItem.type === 'UPLOAD_IMAGE') {
+          console.log('[WorkOrderDetail] Clearing pending sync images after successful image sync');
+          setPendingSyncImages([]);
+        }
+
+        // Osvežava sve podatke sa servera
+        fetchWorkOrder();
+      }
+    });
+
+    // Cleanup listener kada se komponenta unmount-uje
+    return () => {
+      console.log('[WorkOrderDetail] Cleaning up sync completion listener');
+      unsubscribe();
+    };
   }, [orderId]);
 
   const requestPermissions = async () => {
@@ -115,6 +147,14 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         dataRepository.getMaterials(user._id),
         dataRepository.getRemovedEquipment(orderId)
       ]);
+
+      console.log('[WorkOrderDetail] Loaded data:', {
+        techEqCount: techEq.length,
+        userEqCount: userEq.length,
+        materialsCount: materials.length,
+        removedEqCount: removedEq.length,
+        techEqSample: techEq[0]
+      });
 
       setTechnicianEquipment(techEq);
       setUserEquipment(userEq);
@@ -164,6 +204,10 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     setImages(images.filter((_, i) => i !== index));
   };
 
+  const removePendingSyncImage = (index) => {
+    setPendingSyncImages(pendingSyncImages.filter((_, i) => i !== index));
+  };
+
   const handleImageUpload = async () => {
     if (images.length === 0) {
       Alert.alert('Greška', 'Molimo izaberite slike');
@@ -184,7 +228,12 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         setUploadProgress(Math.round(((i + 1) / images.length) * 100));
       }
 
-      // Clear local images
+      // Ako je offline, prebaci slike u pendingSyncImages
+      if (!isOnline) {
+        setPendingSyncImages([...pendingSyncImages, ...images]);
+      }
+
+      // Clear local images koji su sada u upload procesu
       setImages([]);
 
       const message = isOnline
@@ -305,15 +354,19 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     setSaving(true);
 
     try {
-      await userEquipmentAPI.removeBySerial({
-        workOrderId: orderId,
+      // Koristi dataRepository za offline-first uklanjanje opreme po serijskom broju
+      await dataRepository.removeEquipmentBySerial(orderId, {
         technicianId: user._id,
         equipmentName: removalEquipmentName,
         serialNumber: removalSerialNumber,
         condition: removalCondition
       });
 
-      Alert.alert('Uspešno', 'Oprema je uspešno uklonjena');
+      const message = isOnline
+        ? 'Oprema je uspešno uklonjena'
+        : 'Oprema je uklonjena i biće sinhronizovana kada se povežete na internet';
+
+      Alert.alert('Uspešno', message);
 
       // Reset form
       setRemovalEquipmentName('');
@@ -325,7 +378,8 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       fetchWorkOrder();
     } catch (error) {
       console.error('Greška pri uklanjanju opreme:', error);
-      Alert.alert('Greška', error.response?.data?.error || 'Neuspešno uklanjanje opreme');
+      const errorMessage = error.response?.data?.error || error.message || 'Neuspešno uklanjanje opreme';
+      Alert.alert('Greška', errorMessage);
     } finally {
       setSaving(false);
     }
@@ -395,13 +449,14 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                 mat => (mat.material || mat.materialId) !== (materialToRemove.material || materialToRemove.materialId)
               );
 
-              // Pošalji ažuriranu listu materijala
-              await workOrdersAPI.updateUsedMaterials(orderId, {
-                materials: updatedMaterials,
-                technicianId: user._id
-              });
+              // Koristi dataRepository za offline-first ažuriranje
+              await dataRepository.updateUsedMaterials(user._id, orderId, updatedMaterials);
 
-              Alert.alert('Uspešno', 'Materijal je uklonjen');
+              const message = isOnline
+                ? 'Materijal je uklonjen'
+                : 'Materijal je uklonjen i biće sinhronizovano kada se povežete na internet';
+
+              Alert.alert('Uspešno', message);
               fetchWorkOrder();
             } catch (error) {
               console.error('Greška pri uklanjanju materijala:', error);
@@ -574,41 +629,57 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
   const statusInfo = getStatusInfo();
 
-  const availableEquipment = technicianEquipment.filter(
-    eq => eq.assignedTo === user._id && eq.status === 'assigned' && !eq.assignedToUser
-  );
+  const availableEquipment = technicianEquipment.filter(eq => {
+    const assignedToMatch = eq.assignedTo === user._id || eq.assignedTo?._id === user._id;
+    const statusMatch = eq.status === 'assigned';
+    const notAssignedToUser = !eq.assignedToUser;
+
+    console.log('[WorkOrderDetail] Equipment filter:', {
+      description: eq.description,
+      assignedTo: eq.assignedTo,
+      userId: user._id,
+      assignedToMatch,
+      statusMatch,
+      notAssignedToUser,
+      passes: assignedToMatch && statusMatch && notAssignedToUser
+    });
+
+    return assignedToMatch && statusMatch && notAssignedToUser;
+  });
 
   return (
-    <Box className="flex-1 bg-gray-50" style={{ paddingTop: insets.top }}>
-      {/* Header with Status */}
-      <Box className="bg-white border-b border-gray-200">
-        <VStack space="md" className="p-4">
-          <HStack className="items-center justify-between">
-            <HStack space="sm" className="items-center flex-1">
-              <Box className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
-                <Ionicons name={statusInfo.icon} size={20} color={statusInfo.color} />
-              </Box>
-              <VStack className="flex-1">
-                <Text size="xs" className="text-gray-500 uppercase tracking-wide">{statusInfo.label}</Text>
-                <Heading size="lg" className="text-gray-900">{workOrder.municipality}</Heading>
-              </VStack>
+    <Box className="flex-1 bg-gray-50">
+      {/* Header with Status - Compact */}
+      <Box className="bg-white border-b border-gray-200 px-4 py-2">
+        <HStack space="sm" className="items-center">
+          <Box className="w-8 h-8 rounded-full bg-gray-100 items-center justify-center">
+            <Ionicons name={statusInfo.icon} size={16} color={statusInfo.color} />
+          </Box>
+          <VStack className="flex-1" space="xs">
+            <HStack className="items-center" space="xs">
+              <Text size="xs" className="text-gray-500 uppercase tracking-wide">{statusInfo.label}</Text>
+              <Text size="xs" className="text-gray-400">•</Text>
+              <Heading size="sm" className="text-gray-900">{workOrder.municipality}</Heading>
             </HStack>
-          </HStack>
-          <HStack space="md" className="pt-2 border-t border-gray-100">
-            <HStack space="xs" className="items-center">
-              <Ionicons name="calendar-outline" size={16} color="#9ca3af" />
-              <Text size="sm" className="text-gray-600">
-                {new Date(workOrder.date).toLocaleDateString('sr-RS', { day: '2-digit', month: 'short' })}
-              </Text>
-            </HStack>
-            {workOrder.time && (
+            <HStack space="sm" className="items-center">
               <HStack space="xs" className="items-center">
-                <Ionicons name="time-outline" size={16} color="#9ca3af" />
-                <Text size="sm" className="text-gray-600">{workOrder.time}</Text>
+                <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                <Text size="xs" className="text-gray-500">
+                  {new Date(workOrder.date).toLocaleDateString('sr-RS', { day: '2-digit', month: 'short' })}
+                </Text>
               </HStack>
-            )}
-          </HStack>
-        </VStack>
+              {workOrder.time && (
+                <>
+                  <Text size="xs" className="text-gray-400">•</Text>
+                  <HStack space="xs" className="items-center">
+                    <Ionicons name="time-outline" size={12} color="#9ca3af" />
+                    <Text size="xs" className="text-gray-500">{workOrder.time}</Text>
+                  </HStack>
+                </>
+              )}
+            </HStack>
+          </VStack>
+        </HStack>
       </Box>
 
       <ScrollView
@@ -617,7 +688,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         showsVerticalScrollIndicator={false}
       >
         {/* Location Section */}
-        <Box className="bg-white mt-3 p-4 border-b border-gray-200">
+        <Box className="bg-white p-4 border-b border-gray-200">
           <VStack space="md">
             <Text size="xs" bold className="text-gray-500 uppercase tracking-wide">Lokacija</Text>
             <VStack space="sm">
@@ -906,6 +977,35 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                       </HStack>
                     )}
                   </Button>
+                </VStack>
+              )}
+
+              {/* Pending Sync Images (waiting for internet connection) */}
+              {pendingSyncImages.length > 0 && (
+                <VStack space="sm" className="bg-amber-50 rounded-xl p-3 border border-amber-200">
+                  <HStack space="xs" className="items-center">
+                    <Ionicons name="cloud-offline" size={16} color="#f59e0b" />
+                    <Text size="xs" bold className="text-amber-700">Čeka sinhronizaciju ({pendingSyncImages.length}):</Text>
+                  </HStack>
+                  <HStack className="flex-wrap gap-2">
+                    {pendingSyncImages.map((image, index) => (
+                      <Box key={index} className="relative w-20 h-20">
+                        <Image source={{ uri: image.uri }} className="w-full h-full rounded-lg" />
+                        <Box className="absolute top-0 right-0 bg-amber-500 rounded-full w-4 h-4 items-center justify-center">
+                          <Ionicons name="time" size={10} color="#fff" />
+                        </Box>
+                        <Pressable
+                          className="absolute -top-1 -right-1 bg-red-500 rounded-full w-5 h-5 items-center justify-center"
+                          onPress={() => removePendingSyncImage(index)}
+                        >
+                          <Ionicons name="close" size={14} color="#fff" />
+                        </Pressable>
+                      </Box>
+                    ))}
+                  </HStack>
+                  <Text size="xs" className="text-amber-600 italic">
+                    Ove slike će biti upload-ovane kada se povežete na internet
+                  </Text>
                 </VStack>
               )}
 

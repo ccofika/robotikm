@@ -336,13 +336,41 @@ class DataRepository {
    */
   async addUserEquipment(workOrderId, equipmentData) {
     try {
-      // Dodaj lokalno optimistično
+      console.log('[DataRepository] Adding user equipment:', { workOrderId, equipmentData });
+
+      // Ako je online, dodaj direktno na server i refresh
+      if (networkMonitor.getIsOnline()) {
+        try {
+          await userEquipmentAPI.add(equipmentData);
+
+          // Odmah refresh user equipment sa servera
+          const response = await workOrdersAPI.getUserEquipment(workOrderId);
+          await offlineStorage.saveUserEquipment(workOrderId, response.data);
+
+          console.log('[DataRepository] Equipment added and refreshed from server');
+          return true;
+        } catch (error) {
+          console.error('[DataRepository] Error adding equipment online:', error);
+          throw error;
+        }
+      }
+
+      // Ako je offline, dodaj u queue i sačuvaj lokalno sa temp ID-em
       const currentEquipment = await offlineStorage.getUserEquipment(workOrderId);
+      const technicianEquipment = await offlineStorage.getEquipment(equipmentData.technicianId);
+
+      // Pronađi opremu iz tehničarevog inventara da dobijemo description i serialNumber
+      const selectedEq = technicianEquipment.find(eq => eq._id === equipmentData.equipmentId);
+
       const newEquipment = {
         ...equipmentData,
         id: `temp_${Date.now()}`, // Temporary ID
+        _id: `temp_${Date.now()}`,
+        description: selectedEq?.description || 'Pending sync...',
+        serialNumber: selectedEq?.serialNumber || 'N/A',
         _pendingSync: true
       };
+
       currentEquipment.push(newEquipment);
       await offlineStorage.saveUserEquipment(workOrderId, currentEquipment);
 
@@ -355,10 +383,7 @@ class DataRepository {
         data: equipmentData
       });
 
-      if (networkMonitor.getIsOnline()) {
-        syncQueue.processQueue();
-      }
-
+      console.log('[DataRepository] Equipment queued for sync (offline)');
       return true;
     } catch (error) {
       console.error('[DataRepository] Error adding user equipment:', error);
@@ -367,28 +392,64 @@ class DataRepository {
   }
 
   /**
-   * Uklanja opremu korisnika
+   * Uklanja DODATU opremu korisnika (oprema koja je instalirana sa liste tehničara)
+   * OVO NIJE ZA REMOVED EQUIPMENT - to je posebna funkcija removeEquipmentBySerial
    */
   async removeUserEquipment(workOrderId, equipmentId, removalData) {
     try {
+      console.log('[DataRepository] Removing installed user equipment:', { workOrderId, equipmentId, removalData });
+
       // Ukloni lokalno odmah
       const currentEquipment = await offlineStorage.getUserEquipment(workOrderId);
-      const updatedEquipment = currentEquipment.filter(eq => eq.id !== equipmentId);
-      await offlineStorage.saveUserEquipment(workOrderId, updatedEquipment);
 
-      // Dodaj removed equipment u poseban storage
-      const removedEquipment = await offlineStorage.getRemovedEquipment(workOrderId);
-      const removedItem = currentEquipment.find(eq => eq.id === equipmentId);
-      if (removedItem) {
-        removedEquipment.push({
-          ...removedItem,
-          ...removalData,
-          removedAt: Date.now()
-        });
-        await offlineStorage.saveRemovedEquipment(workOrderId, removedEquipment);
+      // Filter opremu - proveri oba ID polja (id i _id) jer oprema sa servera ima _id, temp ima id
+      const updatedEquipment = currentEquipment.filter(eq => {
+        const eqId = eq.id || eq._id;
+        return eqId !== equipmentId;
+      });
+
+      // Pronađi uklonjenu opremu - proveri oba ID polja
+      const removedItem = currentEquipment.find(eq => {
+        const eqId = eq.id || eq._id;
+        return eqId === equipmentId;
+      });
+
+      if (!removedItem) {
+        console.warn(`[DataRepository] Equipment ${equipmentId} not found in current equipment list`);
+        return false;
       }
 
-      // Dodaj u sync queue
+      console.log('[DataRepository] Found equipment to remove from installed list:', {
+        description: removedItem.description,
+        serialNumber: removedItem.serialNumber,
+        isPendingSync: removedItem._pendingSync
+      });
+
+      // Sačuvaj ažuriranu listu opreme (samo uklanjanje iz instalirane opreme)
+      await offlineStorage.saveUserEquipment(workOrderId, updatedEquipment);
+
+      // VAŽNO: Ako je oprema pending sync (temp ID), NE dodavaj u sync queue za removal
+      // jer ona nije ni dodana na server još
+      if (removedItem._pendingSync) {
+        console.log('[DataRepository] Equipment has temp ID (_pendingSync), removing from add queue instead');
+
+        // Ukloni iz ADD sync queue ako postoji
+        const queue = await syncQueue.getQueue();
+        const addItem = queue.find(item =>
+          item.type === 'ADD_USER_EQUIPMENT' &&
+          item.data.equipmentId === removalData.equipmentId &&
+          item.data.workOrderId === workOrderId
+        );
+
+        if (addItem) {
+          await syncQueue.removeFromQueue(addItem.id);
+          console.log('[DataRepository] Removed pending ADD from sync queue');
+        }
+
+        return true;
+      }
+
+      // Ako oprema ima pravi server ID, dodaj u sync queue za removal
       await syncQueue.addToQueue({
         type: 'REMOVE_USER_EQUIPMENT',
         entity: 'userEquipment',
@@ -401,6 +462,8 @@ class DataRepository {
         }
       });
 
+      console.log('[DataRepository] Equipment removal queued for sync');
+
       if (networkMonitor.getIsOnline()) {
         syncQueue.processQueue();
       }
@@ -408,6 +471,83 @@ class DataRepository {
       return true;
     } catch (error) {
       console.error('[DataRepository] Error removing user equipment:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Uklanja opremu po serijskom broju (ručno uneti naziv i S/N)
+   * OVO JE POTPUNO ODVOJENO OD addUserEquipment - ovo je za opremu koja se uklanja sa lokacije
+   */
+  async removeEquipmentBySerial(workOrderId, equipmentData) {
+    try {
+      const { technicianId, equipmentName, serialNumber, condition } = equipmentData;
+
+      console.log('[DataRepository] Removing equipment by serial:', {
+        workOrderId,
+        equipmentName,
+        serialNumber,
+        condition
+      });
+
+      // Ako je online, odmah pošalji na server
+      if (networkMonitor.getIsOnline()) {
+        try {
+          await userEquipmentAPI.removeBySerial({
+            workOrderId,
+            technicianId,
+            equipmentName,
+            serialNumber,
+            condition
+          });
+
+          // Odmah refresh removed equipment sa servera
+          const response = await userEquipmentAPI.getRemovedForWorkOrder(workOrderId);
+          await offlineStorage.saveRemovedEquipment(workOrderId, response.data);
+
+          console.log('[DataRepository] Equipment removed by serial and refreshed from server');
+          return true;
+        } catch (error) {
+          console.error('[DataRepository] Error removing equipment by serial online:', error);
+          throw error;
+        }
+      }
+
+      // Ako je offline, sačuvaj lokalno i dodaj u sync queue
+      const removedEquipment = await offlineStorage.getRemovedEquipment(workOrderId);
+
+      const newRemovedEquipment = {
+        id: `temp_removed_${Date.now()}`,
+        equipmentType: equipmentName,
+        serialNumber,
+        condition: condition === 'ispravna' ? 'ispravna' : 'neispravna',
+        removedAt: new Date().toISOString(),
+        notes: `Uklonjeno od tehničara - ${equipmentName}`,
+        _pendingSync: true
+      };
+
+      removedEquipment.push(newRemovedEquipment);
+      await offlineStorage.saveRemovedEquipment(workOrderId, removedEquipment);
+
+      // Dodaj u sync queue
+      await syncQueue.addToQueue({
+        type: 'REMOVE_EQUIPMENT_BY_SERIAL',
+        entity: 'removedEquipment',
+        entityId: workOrderId,
+        action: 'create',
+        data: {
+          workOrderId,
+          technicianId,
+          equipmentName,
+          serialNumber,
+          condition
+        }
+      });
+
+      console.log('[DataRepository] Equipment removal by serial queued for sync (offline)');
+      return true;
+    } catch (error) {
+      console.error('[DataRepository] Error removing equipment by serial:', error);
       throw error;
     }
   }
@@ -430,10 +570,42 @@ class DataRepository {
         }
       }
 
+      // Refresh u pozadini ako je online
+      if (networkMonitor.getIsOnline() && !forceRefresh) {
+        this.refreshRemovedEquipment(workOrderId);
+      }
+
       return cached;
     } catch (error) {
       console.error('[DataRepository] Error getting removed equipment:', error);
       return [];
+    }
+  }
+
+  /**
+   * Refreshuje uklonjenu opremu sa servera u pozadini
+   */
+  async refreshRemovedEquipment(workOrderId) {
+    const key = `removedEquipment_${workOrderId}`;
+    if (this.refreshInProgress.has(key)) {
+      return await offlineStorage.getRemovedEquipment(workOrderId);
+    }
+
+    this.refreshInProgress.add(key);
+
+    try {
+      const response = await userEquipmentAPI.getRemovedForWorkOrder(workOrderId);
+      const removedEquipment = response.data;
+
+      await offlineStorage.saveRemovedEquipment(workOrderId, removedEquipment);
+
+      console.log(`[DataRepository] Refreshed removed equipment for work order ${workOrderId}`);
+      return removedEquipment;
+    } catch (error) {
+      console.error('[DataRepository] Error refreshing removed equipment:', error);
+      return await offlineStorage.getRemovedEquipment(workOrderId);
+    } finally {
+      this.refreshInProgress.delete(key);
     }
   }
 

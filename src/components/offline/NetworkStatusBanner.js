@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOffline } from '../../context/OfflineContext';
 import { HStack } from '../ui/hstack';
 import { Text } from '../ui/text';
@@ -12,6 +13,7 @@ import { Box } from '../ui/box';
  */
 
 export const NetworkStatusBanner = () => {
+  const insets = useSafeAreaInsets();
   const {
     isOnline,
     isSyncing,
@@ -71,19 +73,20 @@ export const NetworkStatusBanner = () => {
       disabled={!action}
       style={{
         backgroundColor: bgColor,
-        paddingVertical: 12,
+        paddingTop: insets.top + 8,
+        paddingBottom: 8,
         paddingHorizontal: 16,
       }}
     >
       <HStack space="sm" className="items-center justify-center">
         <Ionicons
           name={icon}
-          size={18}
+          size={16}
           color={textColor}
           style={bannerType === 'syncing' ? { opacity: 0.8 } : {}}
         />
         <Text
-          size="sm"
+          size="xs"
           bold
           style={{ color: textColor }}
         >
@@ -91,7 +94,7 @@ export const NetworkStatusBanner = () => {
         </Text>
         {bannerType === 'syncing' && (
           <Box className="ml-1">
-            <Ionicons name="ellipsis-horizontal" size={18} color={textColor} />
+            <Ionicons name="ellipsis-horizontal" size={16} color={textColor} />
           </Box>
         )}
       </HStack>

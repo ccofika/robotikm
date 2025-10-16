@@ -1,6 +1,14 @@
-import { v4 as uuidv4 } from 'uuid';
 import { storage } from '../utils/storage';
 import networkMonitor from './networkMonitor';
+
+// React Native kompatibilna UUID funkcija
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
 /**
  * Sync Queue Manager
@@ -42,7 +50,7 @@ class SyncQueueManager {
       const queue = await this.getQueue();
 
       const newItem = {
-        id: uuidv4(),
+        id: generateUUID(),
         timestamp: Date.now(),
         retryCount: 0,
         maxRetries: queueItem.maxRetries || this.MAX_RETRIES,
