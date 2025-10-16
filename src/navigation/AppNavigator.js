@@ -1,10 +1,11 @@
-import React, { useContext } from 'react';
+import React, { useContext, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import { useOverdueWorkOrders } from '../context/OverdueWorkOrdersContext';
+import { useEquipmentConfirmation } from '../context/EquipmentConfirmationContext';
 
 // Import screens
 import LoginScreen from '../screens/LoginScreen';
@@ -19,17 +20,27 @@ const Tab = createBottomTabNavigator();
 
 // Tab Navigator - KOPIJA WEB DIZAJNA (Slate boje)
 function MainTabNavigator() {
+  const { hasPendingEquipment } = useEquipmentConfirmation();
+  const { hasOverdueOrders, overdueOrders } = useOverdueWorkOrders();
+
+  // Sakrij tab bar ako ima pending equipment ili overdue orders
+  const shouldHideTabBar = hasPendingEquipment || hasOverdueOrders;
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: '#2563eb', // blue-600 (web)
         tabBarInactiveTintColor: '#94a3b8', // slate-400 (web)
-        tabBarStyle: {
+        tabBarStyle: shouldHideTabBar ? { display: 'none' } : {
           backgroundColor: '#ffffff',
           borderTopColor: '#e2e8f0', // slate-200
           borderTopWidth: 1,
         },
+      }}
+      screenListeners={{
+        // Blokiraj swipe gestures između tabova kada ima pending/overdue
+        swipeEnabled: !shouldHideTabBar,
       }}
     >
       <Tab.Screen
@@ -77,15 +88,22 @@ function MainTabNavigator() {
 }
 
 // Root Navigator
-export default function AppNavigator() {
+export default function AppNavigator({ onNavigationReady }) {
   const { user, loading } = useContext(AuthContext);
+  const navigationRef = useRef();
+
+  const handleNavigationReady = () => {
+    if (onNavigationReady && navigationRef.current) {
+      onNavigationReady(navigationRef.current);
+    }
+  };
 
   if (loading) {
     return null; // Ili Loading screen
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef} onReady={handleNavigationReady}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {!user ? (
           <Stack.Screen name="Login" component={LoginScreen} />

@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 import { authAPI } from '../services/api';
 import { VStack } from '../components/ui/vstack';
@@ -21,6 +22,7 @@ import { Center } from '../components/ui/center';
 
 export default function LoginScreen() {
   const { login } = useContext(AuthContext);
+  const insets = useSafeAreaInsets();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -80,6 +82,7 @@ export default function LoginScreen() {
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
+        style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
       >
         <ScrollView
           contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}

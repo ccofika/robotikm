@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { FlatList, RefreshControl, Modal, Alert, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 import { techniciansAPI } from '../services/api';
 import { VStack } from '../components/ui/vstack';
@@ -14,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 
 export default function BasicEquipmentScreen() {
   const { user } = useContext(AuthContext);
+  const insets = useSafeAreaInsets();
   const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -99,7 +101,7 @@ export default function BasicEquipmentScreen() {
   return (
     <Box className="flex-1 bg-slate-50">
       {/* Header */}
-      <HStack className="bg-white px-6 py-4 border-b border-slate-200 justify-between items-center">
+      <HStack className="bg-white px-6 py-4 border-b border-slate-200 justify-between items-center" style={{ paddingTop: insets.top + 16 }}>
         <Heading size="xl" className="text-slate-900">Osnovna Oprema</Heading>
         <Pressable
           onPress={() => setShowFilters(true)}
@@ -139,7 +141,7 @@ export default function BasicEquipmentScreen() {
         data={currentItems}
         renderItem={renderEquipmentItem}
         keyExtractor={(item) => item.id || item.type}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 16) }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
           <Box className="flex-1 items-center justify-center p-12">

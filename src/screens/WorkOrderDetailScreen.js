@@ -7,9 +7,10 @@ import { ScrollView, Pressable, Alert, Image, Linking, Platform, Modal, FlatList
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
-import { workOrdersAPI, techniciansAPI, userEquipmentAPI } from '../services/api';
+import { useOffline } from '../context/OfflineContext';
+import dataRepository from '../services/dataRepository';
 import { VStack } from '../components/ui/vstack';
 import { HStack } from '../components/ui/hstack';
 import { Box } from '../components/ui/box';
@@ -20,11 +21,12 @@ import { Center } from '../components/ui/center';
 import { Spinner } from '../components/ui/spinner';
 import { Input, InputField } from '../components/ui/input';
 import { Button, ButtonText, ButtonSpinner } from '../components/ui/button';
-import axios from 'axios';
 
 export default function WorkOrderDetailScreen({ route, navigation }) {
   const { orderId } = route.params;
   const { user } = useContext(AuthContext);
+  const { isOnline } = useOffline();
+  const insets = useSafeAreaInsets();
   const [workOrder, setWorkOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -82,8 +84,14 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
   const fetchWorkOrder = async () => {
     try {
-      const response = await workOrdersAPI.getOne(orderId);
-      const order = response.data;
+      // Koristi dataRepository za offline-first pristup
+      const order = await dataRepository.getWorkOrder(user._id, orderId, false);
+
+      if (!order) {
+        Alert.alert('Greška', 'Radni nalog nije pronađen');
+        navigation.goBack();
+        return;
+      }
 
       const technicianId = order.technicianId?._id || order.technicianId;
       const technician2Id = order.technician2Id?._id || order.technician2Id;
@@ -98,23 +106,25 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       setWorkOrder(order);
       setComment(order.comment || '');
       setUsedMaterials(order.materials || []);
-      setUploadedImages(order.images || []); // Set uploaded images from backend
+      setUploadedImages(order.images || []);
 
-      // Fetch equipment and materials
-      const [techEqRes, userEqRes, materialsRes, removedEqRes] = await Promise.all([
-        techniciansAPI.getEquipment(user._id),
-        workOrdersAPI.getUserEquipment(orderId),
-        techniciansAPI.getMaterials(user._id),
-        userEquipmentAPI.getRemovedForWorkOrder(orderId).catch(() => ({ data: [] }))
+      // Fetch equipment and materials using dataRepository
+      const [techEq, userEq, materials, removedEq] = await Promise.all([
+        dataRepository.getEquipment(user._id),
+        dataRepository.getUserEquipment(orderId),
+        dataRepository.getMaterials(user._id),
+        dataRepository.getRemovedEquipment(orderId)
       ]);
 
-      setTechnicianEquipment(techEqRes.data);
-      setUserEquipment(userEqRes.data);
-      setAvailableMaterials(materialsRes.data);
-      setRemovedEquipment(removedEqRes.data);
+      setTechnicianEquipment(techEq);
+      setUserEquipment(userEq);
+      setAvailableMaterials(materials);
+      setRemovedEquipment(removedEq);
     } catch (error) {
       console.error('Greška pri učitavanju radnog naloga:', error);
-      Alert.alert('Greška', 'Neuspešno učitavanje radnog naloga');
+      if (isOnline) {
+        Alert.alert('Greška', 'Neuspešno učitavanje radnog naloga');
+      }
     } finally {
       setLoading(false);
     }
@@ -164,54 +174,27 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     setUploadProgress(0);
 
     try {
-      const API_URL = axios.defaults.baseURL || 'http://localhost:5000';
-
       for (let i = 0; i < images.length; i++) {
         const image = images[i];
 
-        // Create form data
-        const formData = new FormData();
-
-        // Get file info
-        const fileInfo = await FileSystem.getInfoAsync(image.uri);
-
-        // Determine file type
-        let fileType = 'image/jpeg';
-        if (image.uri.endsWith('.png')) fileType = 'image/png';
-        else if (image.uri.endsWith('.jpg') || image.uri.endsWith('.jpeg')) fileType = 'image/jpeg';
-
-        // Create file object for upload
-        formData.append('image', {
-          uri: image.uri,
-          name: `photo_${Date.now()}_${i}.jpg`,
-          type: fileType
-        });
-
-        formData.append('technicianId', user._id);
-
-        // Upload to backend
-        const response = await axios.post(
-          `${API_URL}/api/workorders/${orderId}/images`,
-          formData,
-          {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
-            timeout: 60000,
-          }
-        );
+        // Koristi dataRepository za offline-first upload
+        await dataRepository.uploadWorkOrderImage(orderId, image.uri, user._id);
 
         // Update progress
         setUploadProgress(Math.round(((i + 1) / images.length) * 100));
       }
 
-      // Refresh work order data to get updated images
-      await fetchWorkOrder();
-
       // Clear local images
       setImages([]);
 
-      Alert.alert('Uspešno', 'Sve slike su uspešno uploadovane!');
+      const message = isOnline
+        ? 'Sve slike su uspešno uploadovane!'
+        : 'Slike će biti uploadovane kada se povežete na internet';
+
+      Alert.alert('Uspešno', message);
+
+      // Refresh work order data
+      await fetchWorkOrder();
     } catch (error) {
       console.error('Greška pri upload-u slika:', error);
       Alert.alert('Greška', 'Neuspešno uploadovanje slika. Pokušajte ponovo.');
@@ -232,9 +215,10 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           style: 'destructive',
           onPress: async () => {
             try {
-              const API_URL = axios.defaults.baseURL || 'http://localhost:5000';
-              await axios.delete(`${API_URL}/api/workorders/${orderId}/images`, {
-                data: { imageUrl }
+              // Handle both string URLs and objects with url/uri properties
+              const imageUri = typeof imageUrl === 'string' ? imageUrl : (imageUrl.url || imageUrl.uri);
+              await api.delete(`/api/workorders/${orderId}/images`, {
+                data: { imageUrl: imageUri }
               });
 
               // Refresh work order data
@@ -258,19 +242,26 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     }
 
     try {
-      await workOrdersAPI.updateUsedEquipment(orderId, {
+      // Koristi dataRepository za offline-first dodavanje
+      await dataRepository.addUserEquipment(orderId, {
         userId: workOrder.tisId,
         equipmentId: selectedEquipment,
         workOrderId: orderId,
         technicianId: user._id
       });
 
-      Alert.alert('Uspešno', 'Oprema je dodata');
+      const message = isOnline
+        ? 'Oprema je dodata'
+        : 'Oprema je dodata i biće sinhronizovana kada se povežete na internet';
+
+      Alert.alert('Uspešno', message);
       setShowEquipmentModal(false);
       setSelectedEquipment('');
       fetchWorkOrder();
     } catch (error) {
-      Alert.alert('Greška', 'Neuspešno dodavanje opreme');
+      console.error('Greška pri dodavanju opreme:', error);
+      const errorMessage = error.response?.data?.error || error.message || 'Neuspešno dodavanje opreme';
+      Alert.alert('Greška', errorMessage);
     }
   };
 
@@ -281,20 +272,27 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     }
 
     try {
-      await workOrdersAPI.updateUsedEquipment(orderId, {
-        action: 'remove',
-        equipmentId: removeEquipmentId,
-        reason: removeReason,
-        workOrderId: orderId
+      // Koristi dataRepository za offline-first uklanjanje
+      await dataRepository.removeUserEquipment(orderId, removeEquipmentId, {
+        workOrderId: orderId,
+        technicianId: user._id,
+        removalReason: removeReason,
+        isWorking: true
       });
 
-      Alert.alert('Uspešno', 'Oprema je uklonjena');
+      const message = isOnline
+        ? 'Oprema je uklonjena'
+        : 'Oprema je uklonjena i biće sinhronizovano kada se povežete na internet';
+
+      Alert.alert('Uspešno', message);
       setShowRemoveEquipmentModal(false);
       setRemoveEquipmentId('');
       setRemoveReason('');
       fetchWorkOrder();
     } catch (error) {
-      Alert.alert('Greška', 'Neuspešno uklanjanje opreme');
+      console.error('Greška pri uklanjanju opreme:', error);
+      const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message || 'Neuspešno uklanjanje opreme';
+      Alert.alert('Greška', errorMessage);
     }
   };
 
@@ -340,20 +338,80 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     }
 
     try {
-      await workOrdersAPI.updateUsedMaterials(orderId, {
-        materialId: selectedMaterial,
-        quantity: parseInt(materialQuantity),
-        workOrderId: orderId
-      });
+      // Pronađi postojeći materijal ili dodaj novi
+      const existingMaterialIndex = usedMaterials.findIndex(
+        mat => mat.material === selectedMaterial || mat.materialId === selectedMaterial
+      );
 
-      Alert.alert('Uspešno', 'Materijal je dodat');
+      let updatedMaterials;
+      if (existingMaterialIndex !== -1) {
+        updatedMaterials = [...usedMaterials];
+        updatedMaterials[existingMaterialIndex] = {
+          material: selectedMaterial,
+          quantity: updatedMaterials[existingMaterialIndex].quantity + parseInt(materialQuantity)
+        };
+      } else {
+        updatedMaterials = [
+          ...usedMaterials,
+          {
+            material: selectedMaterial,
+            quantity: parseInt(materialQuantity)
+          }
+        ];
+      }
+
+      // Koristi dataRepository za offline-first ažuriranje
+      await dataRepository.updateUsedMaterials(user._id, orderId, updatedMaterials);
+
+      const message = isOnline
+        ? 'Materijal je dodat'
+        : 'Materijal je dodat i biće sinhronizovan kada se povežete na internet';
+
+      Alert.alert('Uspešno', message);
       setShowMaterialsModal(false);
       setSelectedMaterial('');
       setMaterialQuantity('');
       fetchWorkOrder();
     } catch (error) {
-      Alert.alert('Greška', 'Neuspešno dodavanje materijala');
+      console.error('Greška pri dodavanju materijala:', error);
+      const errorMessage = error.response?.data?.error || error.message || 'Neuspešno dodavanje materijala';
+      Alert.alert('Greška', errorMessage);
     }
+  };
+
+  const handleRemoveMaterial = async (materialToRemove) => {
+    Alert.alert(
+      'Uklanjanje materijala',
+      'Da li ste sigurni da želite da uklonite ovaj materijal?',
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: 'Ukloni',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Ukloni materijal iz liste
+              const updatedMaterials = usedMaterials.filter(
+                mat => (mat.material || mat.materialId) !== (materialToRemove.material || materialToRemove.materialId)
+              );
+
+              // Pošalji ažuriranu listu materijala
+              await workOrdersAPI.updateUsedMaterials(orderId, {
+                materials: updatedMaterials,
+                technicianId: user._id
+              });
+
+              Alert.alert('Uspešno', 'Materijal je uklonjen');
+              fetchWorkOrder();
+            } catch (error) {
+              console.error('Greška pri uklanjanju materijala:', error);
+              const errorMessage = error.response?.data?.error || error.message || 'Neuspešno uklanjanje materijala';
+              Alert.alert('Greška', errorMessage);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleComplete = async () => {
@@ -367,16 +425,24 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           onPress: async () => {
             setSaving(true);
             try {
-              await workOrdersAPI.updateByTechnician(orderId, {
+              // Koristi dataRepository za offline-first ažuriranje
+              await dataRepository.updateWorkOrder(user._id, orderId, {
                 status: 'zavrsen',
                 comment,
                 completedAt: new Date().toISOString()
               });
-              Alert.alert('Uspešno', 'Radni nalog je završen', [
+
+              const message = isOnline
+                ? 'Radni nalog je završen'
+                : 'Radni nalog je označen kao završen i biće sinhronizovan kada se povežete na internet';
+
+              Alert.alert('Uspešno', message, [
                 { text: 'OK', onPress: () => navigation.goBack() }
               ]);
             } catch (error) {
-              Alert.alert('Greška', 'Neuspešno završavanje radnog naloga');
+              console.error('Greška pri završavanju radnog naloga:', error);
+              const errorMessage = error.response?.data?.error || error.message || 'Neuspešno završavanje radnog naloga';
+              Alert.alert('Greška', errorMessage);
             } finally {
               setSaving(false);
             }
@@ -394,16 +460,23 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
     setSaving(true);
     try {
-      await workOrdersAPI.updateByTechnician(orderId, {
+      await dataRepository.updateWorkOrder(user._id, orderId, {
         status: 'odlozen',
         postponeComment,
         comment
       });
-      Alert.alert('Uspešno', 'Radni nalog je odložen', [
+
+      const message = isOnline
+        ? 'Radni nalog je odložen'
+        : 'Radni nalog je označen kao odložen i biće sinhronizovan kada se povežete na internet';
+
+      Alert.alert('Uspešno', message, [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (error) {
-      Alert.alert('Greška', 'Neuspešno odlaganje radnog naloga');
+      console.error('Greška pri odlaganju radnog naloga:', error);
+      const errorMessage = error.response?.data?.error || error.message || 'Neuspešno odlaganje radnog naloga';
+      Alert.alert('Greška', errorMessage);
     } finally {
       setSaving(false);
       setShowStatusModal(false);
@@ -418,16 +491,23 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
     setSaving(true);
     try {
-      await workOrdersAPI.updateByTechnician(orderId, {
+      await dataRepository.updateWorkOrder(user._id, orderId, {
         status: 'otkazan',
         cancelComment,
         comment
       });
-      Alert.alert('Uspešno', 'Radni nalog je otkazan', [
+
+      const message = isOnline
+        ? 'Radni nalog je otkazan'
+        : 'Radni nalog je označen kao otkazan i biće sinhronizovan kada se povežete na internet';
+
+      Alert.alert('Uspešno', message, [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (error) {
-      Alert.alert('Greška', 'Neuspešno otkazivanje radnog naloga');
+      console.error('Greška pri otkazivanju radnog naloga:', error);
+      const errorMessage = error.response?.data?.error || error.message || 'Neuspešno otkazivanje radnog naloga';
+      Alert.alert('Greška', errorMessage);
     } finally {
       setSaving(false);
       setShowStatusModal(false);
@@ -450,7 +530,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
   if (loading) {
     return (
-      <Box className="flex-1 bg-white">
+      <Box className="flex-1 bg-white" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
         <Center className="flex-1">
           <Spinner size="large" color="#2563eb" />
           <Text size="sm" className="text-gray-500 mt-4">Učitavanje...</Text>
@@ -461,7 +541,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
   if (!workOrder) {
     return (
-      <Box className="flex-1 bg-white">
+      <Box className="flex-1 bg-white" style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
         <Center className="flex-1 p-6">
           <Box className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-4">
             <Ionicons name="alert-circle-outline" size={40} color="#6b7280" />
@@ -499,10 +579,10 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   );
 
   return (
-    <Box className="flex-1 bg-gray-50">
+    <Box className="flex-1 bg-gray-50" style={{ paddingTop: insets.top }}>
       {/* Header with Status */}
       <Box className="bg-white border-b border-gray-200">
-        <VStack space="md" className="p-4 pt-6">
+        <VStack space="md" className="p-4">
           <HStack className="items-center justify-between">
             <HStack space="sm" className="items-center flex-1">
               <Box className="w-10 h-10 rounded-full bg-gray-100 items-center justify-center">
@@ -624,7 +704,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                       </VStack>
                       <Pressable
                         onPress={() => {
-                          setRemoveEquipmentId(eq._id);
+                          setRemoveEquipmentId(eq.id);
                           setShowRemoveEquipmentModal(true);
                         }}
                         className="ml-2"
@@ -650,26 +730,43 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                 <Text size="xs" bold className="text-orange-700 uppercase tracking-wide">Uklonjena Oprema</Text>
               </HStack>
               <VStack space="sm">
-                {removedEquipment.map((eq, index) => (
-                  <Box key={index} className="bg-white rounded-xl p-3 border border-orange-200">
-                    <VStack space="xs">
-                      <HStack className="items-center justify-between">
-                        <Text size="sm" bold className="text-gray-900">{eq.equipmentName || 'N/A'}</Text>
-                        <Box className={`px-2 py-1 rounded-md ${eq.condition === 'neispravna' ? 'bg-red-100' : 'bg-green-100'}`}>
-                          <Text size="xs" bold className={eq.condition === 'neispravna' ? 'text-red-700' : 'text-green-700'}>
-                            {eq.condition === 'neispravna' ? 'Neispravna' : 'Ispravna'}
+                {removedEquipment.map((eq, index) => {
+                  // Backend vraća equipmentType (enum) i notes
+                  // Pokušaj da ekstraktuješ naziv iz notes ili koristi equipmentType
+                  let equipmentName = eq.equipmentType || 'Nepoznata oprema';
+
+                  // Ako postoji notes i sadrži " - ", izvuci deo posle " - "
+                  if (eq.notes && eq.notes.includes(' - ')) {
+                    const noteParts = eq.notes.split(' - ');
+                    if (noteParts.length > 1) {
+                      equipmentName = noteParts[1];
+                    }
+                  }
+
+                  const serialNumber = eq.serialNumber || 'N/A';
+                  const removalDate = eq.removedAt || eq.removalDate;
+
+                  return (
+                    <Box key={index} className="bg-white rounded-xl p-3 border border-orange-200">
+                      <VStack space="xs">
+                        <HStack className="items-center justify-between">
+                          <Text size="sm" bold className="text-gray-900">{equipmentName}</Text>
+                          <Box className={`px-2 py-1 rounded-md ${eq.condition === 'neispravna' ? 'bg-red-100' : 'bg-green-100'}`}>
+                            <Text size="xs" bold className={eq.condition === 'neispravna' ? 'text-red-700' : 'text-green-700'}>
+                              {eq.condition === 'neispravna' ? 'Neispravna' : 'Ispravna'}
+                            </Text>
+                          </Box>
+                        </HStack>
+                        <Text size="xs" className="text-gray-600">S/N: {serialNumber}</Text>
+                        {removalDate && (
+                          <Text size="xs" className="text-gray-500">
+                            {new Date(removalDate).toLocaleDateString('sr-RS')}
                           </Text>
-                        </Box>
-                      </HStack>
-                      <Text size="xs" className="text-gray-600">S/N: {eq.serialNumber || 'N/A'}</Text>
-                      {eq.removalDate && (
-                        <Text size="xs" className="text-gray-500">
-                          {new Date(eq.removalDate).toLocaleDateString('sr-RS')}
-                        </Text>
-                      )}
-                    </VStack>
-                  </Box>
-                ))}
+                        )}
+                      </VStack>
+                    </Box>
+                  );
+                })}
               </VStack>
             </VStack>
           </Box>
@@ -693,14 +790,26 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
               </HStack>
               {usedMaterials.length > 0 ? (
                 <VStack space="sm">
-                  {usedMaterials.map((mat, index) => (
-                    <HStack key={index} className="bg-gray-50 rounded-xl p-3 items-center justify-between">
-                      <Text size="sm" className="text-gray-900 flex-1">{mat.name}</Text>
-                      <Box className="bg-blue-100 rounded-full px-3 py-1">
-                        <Text size="sm" bold className="text-blue-700">×{mat.quantity}</Text>
-                      </Box>
-                    </HStack>
-                  ))}
+                  {usedMaterials.map((mat, index) => {
+                    // Handle different ways material data can be structured
+                    const materialName = mat.name || mat.type || mat.material?.name || mat.material?.type || 'Nepoznat materijal';
+                    return (
+                      <HStack key={index} className="bg-gray-50 rounded-xl p-3 items-center justify-between">
+                        <Text size="sm" className="text-gray-900 flex-1">{materialName}</Text>
+                        <HStack space="sm" className="items-center">
+                          <Box className="bg-blue-100 rounded-full px-3 py-1">
+                            <Text size="sm" bold className="text-blue-700">×{mat.quantity}</Text>
+                          </Box>
+                          <Pressable
+                            onPress={() => handleRemoveMaterial(mat)}
+                            className="ml-1"
+                          >
+                            <Ionicons name="close-circle" size={24} color="#ef4444" />
+                          </Pressable>
+                        </HStack>
+                      </HStack>
+                    );
+                  })}
                 </VStack>
               ) : (
                 <Text size="sm" className="text-gray-400 italic">Nisu dodati materijali</Text>
@@ -805,21 +914,25 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                 <VStack space="sm">
                   <Text size="xs" className="text-gray-600">Uploadovane slike ({uploadedImages.length}):</Text>
                   <HStack className="flex-wrap gap-2">
-                    {uploadedImages.map((imageUrl, index) => (
-                      <Pressable
-                        key={index}
-                        onPress={() => {
-                          setSelectedImage(imageUrl);
-                          setShowImageModal(true);
-                        }}
-                        className="relative w-20 h-20"
-                      >
-                        <Image source={{ uri: imageUrl }} className="w-full h-full rounded-lg" />
-                        <Box className="absolute top-0 right-0 bg-green-500 rounded-full w-4 h-4 items-center justify-center">
-                          <Ionicons name="checkmark" size={10} color="#fff" />
-                        </Box>
-                      </Pressable>
-                    ))}
+                    {uploadedImages.map((imageUrl, index) => {
+                      // Handle both string URLs and objects with url/uri properties
+                      const imageUri = typeof imageUrl === 'string' ? imageUrl : (imageUrl.url || imageUrl.uri);
+                      return (
+                        <Pressable
+                          key={index}
+                          onPress={() => {
+                            setSelectedImage(imageUri);
+                            setShowImageModal(true);
+                          }}
+                          className="relative w-20 h-20"
+                        >
+                          <Image source={{ uri: imageUri }} className="w-full h-full rounded-lg" />
+                          <Box className="absolute top-0 right-0 bg-green-500 rounded-full w-4 h-4 items-center justify-center">
+                            <Ionicons name="checkmark" size={10} color="#fff" />
+                          </Box>
+                        </Pressable>
+                      );
+                    })}
                   </HStack>
                 </VStack>
               )}
@@ -843,7 +956,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
       {/* Bottom Action Bar */}
       {!isCompleted && (
-        <Box className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200">
+        <Box className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200" style={{ paddingBottom: insets.bottom }}>
           <VStack space="sm" className="p-4">
             <Button
               action="primary"

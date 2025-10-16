@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { FlatList, RefreshControl, Modal, Alert, Pressable } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
-import { techniciansAPI } from '../services/api';
+import { useOffline } from '../context/OfflineContext';
+import { useEquipmentConfirmation } from '../context/EquipmentConfirmationContext';
+import dataRepository from '../services/dataRepository';
 import { VStack } from '../components/ui/vstack';
 import { HStack } from '../components/ui/hstack';
 import { Box } from '../components/ui/box';
@@ -14,6 +17,9 @@ import { Ionicons } from '@expo/vector-icons';
 
 export default function EquipmentScreen() {
   const { user } = useContext(AuthContext);
+  const { isOnline } = useOffline();
+  const { checkPendingEquipment } = useEquipmentConfirmation();
+  const insets = useSafeAreaInsets();
   const [equipment, setEquipment] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -25,23 +31,30 @@ export default function EquipmentScreen() {
     fetchEquipment();
   }, [user?._id]);
 
-  const fetchEquipment = async () => {
+  const fetchEquipment = async (forceRefresh = false) => {
     if (!user?._id) return;
     try {
-      const response = await techniciansAPI.getEquipment(user._id);
-      setEquipment(response.data);
+      // Koristi dataRepository za offline-first pristup
+      const eq = await dataRepository.getEquipment(user._id, forceRefresh);
+      setEquipment(eq);
     } catch (error) {
       console.error('Greška pri učitavanju opreme:', error);
-      Alert.alert('Greška', 'Neuspešno učitavanje opreme');
+      if (isOnline) {
+        Alert.alert('Greška', 'Neuspešno učitavanje opreme');
+      }
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setRefreshing(true);
-    fetchEquipment();
+    // Proveri i pending equipment i fetch equipment
+    await Promise.all([
+      fetchEquipment(isOnline), // Force refresh samo ako je online
+      checkPendingEquipment()
+    ]);
+    setRefreshing(false);
   };
 
   const categories = useMemo(() => {
@@ -124,7 +137,7 @@ export default function EquipmentScreen() {
   return (
     <Box className="flex-1 bg-slate-50">
       {/* Header */}
-      <HStack className="bg-white px-6 py-4 border-b border-slate-200 justify-between items-center">
+      <HStack className="bg-white px-6 py-4 border-b border-slate-200 justify-between items-center" style={{ paddingTop: insets.top + 16 }}>
         <Heading size="xl" className="text-slate-900">Moja Oprema</Heading>
         <Pressable
           onPress={() => setShowFilters(true)}
@@ -158,7 +171,7 @@ export default function EquipmentScreen() {
         data={currentItems}
         renderItem={renderEquipmentItem}
         keyExtractor={(item) => item.id || item.serialNumber}
-        contentContainerStyle={{ padding: 16 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 16) }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
           <Box className="flex-1 items-center justify-center p-12">

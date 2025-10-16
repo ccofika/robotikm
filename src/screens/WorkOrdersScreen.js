@@ -2,8 +2,11 @@ import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { FlatList, Pressable, RefreshControl, Modal, Alert, Linking, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
-import { workOrdersAPI } from '../services/api';
+import { useOffline } from '../context/OfflineContext';
+import dataRepository from '../services/dataRepository';
+import { SyncStatusIndicator } from '../components/offline';
 import { VStack } from '../components/ui/vstack';
 import { HStack } from '../components/ui/hstack';
 import { Box } from '../components/ui/box';
@@ -16,25 +19,32 @@ import { Center } from '../components/ui/center';
 
 export default function WorkOrdersScreen({ navigation }) {
   const { user } = useContext(AuthContext);
+  const { isOnline, isSyncing } = useOffline();
+  const insets = useSafeAreaInsets();
   const [workOrders, setWorkOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
 
   useEffect(() => {
     fetchWorkOrders();
   }, [user?._id]);
 
-  const fetchWorkOrders = async () => {
+  const fetchWorkOrders = async (forceRefresh = false) => {
     if (!user?._id) return;
     try {
-      const response = await workOrdersAPI.getTechnicianWorkOrders(user._id);
-      setWorkOrders(response.data);
+      // Koristi dataRepository umesto direktno workOrdersAPI
+      const orders = await dataRepository.getWorkOrders(user._id, forceRefresh);
+      setWorkOrders(orders);
     } catch (error) {
       console.error('Greška pri učitavanju radnih naloga:', error);
-      Alert.alert('Greška', 'Neuspešno učitavanje radnih naloga');
+      if (isOnline) {
+        Alert.alert('Greška', 'Neuspešno učitavanje radnih naloga');
+      }
+      // Ako je offline, podaci su možda i dalje dostupni iz cache-a
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -43,7 +53,8 @@ export default function WorkOrdersScreen({ navigation }) {
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchWorkOrders();
+    // Force refresh samo ako je online
+    fetchWorkOrders(isOnline);
   };
 
   const isWorkOrderNew = (order) => {
@@ -193,17 +204,22 @@ export default function WorkOrdersScreen({ navigation }) {
       end={{ x: 1, y: 1 }}
     >
       {/* Header */}
-      <HStack className="px-6 py-4 bg-white/85 border-b border-white/30 justify-between items-center">
+      <HStack className="px-6 py-4 bg-white/85 border-b border-white/30 justify-between items-center" style={{ paddingTop: insets.top + 16 }}>
         <Heading size="xl" className="text-slate-900">Radni Nalozi</Heading>
-        <Pressable
-          onPress={() => setShowFilters(true)}
-          className="bg-blue-600 rounded-xl px-4 py-2.5"
-        >
-          <HStack space="xs" className="items-center">
-            <Ionicons name="filter-outline" size={16} color="#fff" />
-            <Text size="sm" bold className="text-white">Filteri</Text>
-          </HStack>
-        </Pressable>
+        <HStack space="sm" className="items-center">
+          {/* Sync Status Indicator */}
+          <SyncStatusIndicator onPress={() => setShowSyncModal(true)} />
+
+          <Pressable
+            onPress={() => setShowFilters(true)}
+            className="bg-blue-600 rounded-xl px-4 py-2.5"
+          >
+            <HStack space="xs" className="items-center">
+              <Ionicons name="filter-outline" size={16} color="#fff" />
+              <Text size="sm" bold className="text-white">Filteri</Text>
+            </HStack>
+          </Pressable>
+        </HStack>
       </HStack>
 
       {/* Statistics */}
@@ -223,7 +239,7 @@ export default function WorkOrdersScreen({ navigation }) {
         data={sortedWorkOrders}
         renderItem={renderWorkOrder}
         keyExtractor={(item) => item._id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: Math.max(insets.bottom, 16) }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
           <Center className="p-12">
