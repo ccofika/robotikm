@@ -12,6 +12,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import EquipmentConfirmationScreen from './src/screens/EquipmentConfirmationScreen';
 import OverdueWorkOrdersScreen from './src/screens/OverdueWorkOrdersScreen';
 import { NetworkStatusBanner, ConflictResolutionModal, SyncErrorModal } from './src/components/offline';
+import AppUpdater from './src/components/AppUpdater';
 
 // Import debugging utilities (samo u dev modu)
 if (__DEV__) {
@@ -103,6 +104,9 @@ function AppContent() {
 
   return (
     <>
+      {/* App Updater - Provera za update-e */}
+      <AppUpdater />
+
       {/* Network Status Banner - Prikazuje se uvek na vrhu */}
       <NetworkStatusBanner />
 
