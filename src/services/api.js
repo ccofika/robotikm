@@ -152,4 +152,13 @@ export const userEquipmentAPI = {
   removeBySerial: (data) => api.post('/api/user-equipment/remove-by-serial', data),
 };
 
+// Notifications API
+export const notificationsAPI = {
+  getAll: () => api.get('/api/android-notifications'),
+  getUnreadCount: () => api.get('/api/android-notifications/unread-count'),
+  markAsRead: (id) => api.put(`/api/android-notifications/${id}/read`),
+  delete: (id) => api.delete(`/api/android-notifications/${id}`),
+  registerToken: (pushToken) => api.post('/api/android-notifications/register-token', { pushToken }),
+};
+
 export default api;

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
 import { FlatList, Pressable, RefreshControl, Modal, Alert, Linking, ScrollView } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
@@ -10,12 +9,9 @@ import { SyncStatusIndicator } from '../components/offline';
 import { VStack } from '../components/ui/vstack';
 import { HStack } from '../components/ui/hstack';
 import { Box } from '../components/ui/box';
-import { Card } from '../components/ui/card';
 import { Text } from '../components/ui/text';
 import { Heading } from '../components/ui/heading';
 import { Input, InputField } from '../components/ui/input';
-import { Button, ButtonText } from '../components/ui/button';
-import { Center } from '../components/ui/center';
 
 export default function WorkOrdersScreen({ navigation }) {
   const { user } = useContext(AuthContext);
@@ -133,17 +129,17 @@ export default function WorkOrdersScreen({ navigation }) {
     const displayStatus = getDisplayStatus(item);
     return (
       <Pressable onPress={() => navigation.navigate('WorkOrderDetail', { orderId: item._id })}>
-        <Card variant="elevated" size="md" className="mb-4 border-l-4" style={{ borderLeftColor: displayStatus.color }}>
-          <VStack space="sm">
+        <Box className="bg-white mb-2.5 p-3 rounded-xl shadow-sm border-l-4" style={{ borderLeftColor: displayStatus.color }}>
+          <VStack space="xs">
             <HStack className="justify-between items-center">
-              <Box className="px-3 py-1.5 rounded-lg" style={{ backgroundColor: displayStatus.bgColor }}>
-                <Text size="xs" bold className="uppercase" style={{ color: displayStatus.color }}>
+              <Box className="px-2.5 py-1 rounded-full" style={{ backgroundColor: displayStatus.bgColor }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', color: displayStatus.color }}>
                   {displayStatus.text}
                 </Text>
               </Box>
               <HStack space="xs" className="items-center">
-                <Ionicons name="calendar-outline" size={14} color="#64748b" />
-                <Text size="sm" className="text-slate-600">
+                <Ionicons name="calendar-outline" size={12} color="#6b7280" />
+                <Text style={{ fontSize: 12, color: '#4b5563' }}>
                   {new Date(item.date).toLocaleDateString('sr-RS', { day: '2-digit', month: '2-digit' })}
                   {item.time && ` • ${item.time}`}
                 </Text>
@@ -151,86 +147,106 @@ export default function WorkOrdersScreen({ navigation }) {
             </HStack>
 
             <VStack space="xs">
-              <Text size="lg" bold className="text-slate-900">{item.municipality}</Text>
+              <Text style={{ fontSize: 15, fontWeight: '700', color: '#111827' }}>{item.municipality}</Text>
               <HStack space="xs" className="items-center">
-                <Ionicons name="location-outline" size={14} color="#64748b" />
-                <Text size="sm" className="text-slate-600">{item.address} • {item.type}</Text>
+                <Ionicons name="location-outline" size={13} color="#6b7280" />
+                <Text style={{ fontSize: 12, color: '#4b5563' }}>{item.address} • {item.type}</Text>
               </HStack>
 
               {item.userPhone && (
                 <Pressable
                   onPress={() => makePhoneCall(item.userPhone)}
-                  className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mt-1"
+                  className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mt-0.5 active:bg-blue-100"
                 >
                   <HStack space="sm" className="items-center">
-                    <Ionicons name="call-outline" size={16} color="#2563eb" />
-                    <Text size="sm" bold className="text-blue-600">{item.userPhone}</Text>
+                    <Box className="w-6 h-6 rounded-full bg-blue-100 items-center justify-center">
+                      <Ionicons name="call" size={13} color="#2563eb" />
+                    </Box>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#1d4ed8' }}>{item.userPhone}</Text>
                   </HStack>
                 </Pressable>
               )}
 
               {item.adminComment && (
-                <Box className="bg-red-50 border border-red-200 rounded-xl p-3 mt-1">
-                  <Text size="xs" bold className="text-red-700 uppercase mb-1">Razlog vraćanja:</Text>
-                  <Text size="sm" className="text-red-600">{item.adminComment}</Text>
+                <Box className="bg-red-50 border border-red-200 rounded-lg p-2.5 mt-0.5">
+                  <HStack space="xs" className="items-center mb-0.5">
+                    <Box className="w-4 h-4 rounded-full bg-red-100 items-center justify-center">
+                      <Ionicons name="alert-circle" size={10} color="#dc2626" />
+                    </Box>
+                    <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', color: '#b91c1c' }}>Razlog vraćanja:</Text>
+                  </HStack>
+                  <Text style={{ fontSize: 12, color: '#dc2626' }}>{item.adminComment}</Text>
                 </Box>
               )}
             </VStack>
           </VStack>
-        </Card>
+        </Box>
       </Pressable>
     );
   };
 
-  const renderStatCard = (label, value, iconName, iconBgColor, iconColor) => (
-    <Box className="flex-1 mx-1">
-      <Card variant="elevated" size="md">
-        <VStack space="sm">
-          <Center className="w-12 h-12 rounded-xl" style={{ backgroundColor: iconBgColor }}>
-            <Ionicons name={iconName} size={20} color={iconColor} />
-          </Center>
-          <Text size="xs" bold className="text-slate-600 uppercase tracking-wide">{label}</Text>
-          <Text size="3xl" bold className="text-slate-900">{value}</Text>
-        </VStack>
-      </Card>
-    </Box>
-  );
 
   return (
-    <LinearGradient
-      colors={['#f8fafc', '#e2e8f0']}
-      className="flex-1"
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-    >
-      {/* Header */}
-      <HStack className="px-6 py-4 bg-white/85 border-b border-white/30 justify-between items-center" style={{ paddingTop: insets.top + 16 }}>
-        <Heading size="xl" className="text-slate-900">Radni Nalozi</Heading>
+    <Box className="flex-1 bg-gray-50">
+      {/* Header - Material Design 3 */}
+      <HStack className="bg-white px-4 py-3 border-b border-gray-100 justify-between items-center" style={{ paddingTop: insets.top + 12 }}>
         <HStack space="sm" className="items-center">
-          {/* Sync Status Indicator */}
+          <Box className="w-10 h-10 rounded-full bg-blue-50 items-center justify-center">
+            <Ionicons name="document-text" size={20} color="#2563eb" />
+          </Box>
+          <Heading size="lg" className="text-gray-900">Radni Nalozi</Heading>
+        </HStack>
+        <HStack space="xs" className="items-center">
           <SyncStatusIndicator onPress={() => setShowSyncModal(true)} />
-
           <Pressable
             onPress={() => setShowFilters(true)}
-            className="bg-blue-600 rounded-xl px-4 py-2.5"
+            style={{ minHeight: 44, minWidth: 44 }}
+            className="bg-blue-50 rounded-xl items-center justify-center active:bg-blue-100"
           >
-            <HStack space="xs" className="items-center">
-              <Ionicons name="filter-outline" size={16} color="#fff" />
-              <Text size="sm" bold className="text-white">Filteri</Text>
-            </HStack>
+            <Ionicons name="filter-outline" size={22} color="#2563eb" />
           </Pressable>
         </HStack>
       </HStack>
 
-      {/* Statistics */}
-      <Box className="p-4">
-        <HStack className="mb-2">
-          {renderStatCard('Ukupno', stats.total, 'apps-outline', '#dbeafe', '#1e40af')}
-          {renderStatCard('Završeno', stats.completed, 'checkmark-circle-outline', '#d1fae5', '#059669')}
-        </HStack>
-        <HStack>
-          {renderStatCard('Nezavršeno', stats.pending, 'time-outline', '#fef3c7', '#ca8a04')}
-          {renderStatCard('Novi', stats.newOrders, 'star-outline', '#f3e8ff', '#9333ea')}
+      {/* Stats Cards - Material Design 3 */}
+      <Box className="px-2 py-1.5 bg-white mb-2">
+        <HStack space="xs">
+          <Box className="flex-1 bg-blue-50 rounded-lg border border-blue-100" style={{ minHeight: 42, paddingVertical: 6, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center' }}>
+            <HStack space="xs" className="items-center" style={{ marginBottom: 2 }}>
+              <Box className="w-3.5 h-3.5 rounded-full bg-blue-100 items-center justify-center">
+                <Ionicons name="apps" size={9} color="#2563eb" />
+              </Box>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#1d4ed8' }}>{stats.total}</Text>
+            </HStack>
+            <Text style={{ fontSize: 8, color: '#2563eb' }}>UKUPNO</Text>
+          </Box>
+          <Box className="flex-1 bg-green-50 rounded-lg border border-green-100" style={{ minHeight: 42, paddingVertical: 6, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center' }}>
+            <HStack space="xs" className="items-center" style={{ marginBottom: 2 }}>
+              <Box className="w-3.5 h-3.5 rounded-full bg-green-100 items-center justify-center">
+                <Ionicons name="checkmark-circle" size={9} color="#059669" />
+              </Box>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#047857' }}>{stats.completed}</Text>
+            </HStack>
+            <Text style={{ fontSize: 8, color: '#059669' }}>ZAVRŠENO</Text>
+          </Box>
+          <Box className="flex-1 bg-yellow-50 rounded-lg border border-yellow-100" style={{ minHeight: 42, paddingVertical: 6, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center' }}>
+            <HStack space="xs" className="items-center" style={{ marginBottom: 2 }}>
+              <Box className="w-3.5 h-3.5 rounded-full bg-yellow-100 items-center justify-center">
+                <Ionicons name="time" size={9} color="#ca8a04" />
+              </Box>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#a16207' }}>{stats.pending}</Text>
+            </HStack>
+            <Text style={{ fontSize: 8, color: '#ca8a04' }}>NEZAVRŠENO</Text>
+          </Box>
+          <Box className="flex-1 bg-purple-50 rounded-lg border border-purple-100" style={{ minHeight: 42, paddingVertical: 6, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center' }}>
+            <HStack space="xs" className="items-center" style={{ marginBottom: 2 }}>
+              <Box className="w-3.5 h-3.5 rounded-full bg-purple-100 items-center justify-center">
+                <Ionicons name="star" size={9} color="#9333ea" />
+              </Box>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#7e22ce' }}>{stats.newOrders}</Text>
+            </HStack>
+            <Text style={{ fontSize: 8, color: '#9333ea' }}>NOVI</Text>
+          </Box>
         </HStack>
       </Box>
 
@@ -242,33 +258,47 @@ export default function WorkOrdersScreen({ navigation }) {
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: Math.max(insets.bottom, 16) }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
-          <Center className="p-12">
-            <Ionicons name="document-text-outline" size={64} color="#cbd5e1" style={{ marginBottom: 16 }} />
-            <Text size="md" className="text-slate-500 text-center">
-              {searchTerm || statusFilter
-                ? 'Nema rezultata za zadatu pretragu'
-                : 'Nemate dodeljenih radnih naloga'}
+          <Box className="flex-1 items-center justify-center p-12">
+            <Box className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-4">
+              <Ionicons name="document-text-outline" size={40} color="#9ca3af" />
+            </Box>
+            <Text size="md" bold className="text-gray-700 text-center mb-2">
+              {searchTerm || statusFilter ? 'Nema rezultata' : 'Nema radnih naloga'}
             </Text>
-          </Center>
+            <Text size="sm" className="text-gray-500 text-center">
+              {searchTerm || statusFilter
+                ? 'Pokušajte sa drugačijom pretragom'
+                : 'Trenutno nemate dodeljenih radnih naloga'}
+            </Text>
+          </Box>
         }
       />
 
-      {/* Filter Modal */}
+      {/* Filter Modal - Material Design 3 */}
       <Modal visible={showFilters} animationType="slide" transparent onRequestClose={() => setShowFilters(false)}>
         <Pressable onPress={() => setShowFilters(false)} className="flex-1 bg-black/50 justify-end">
           <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl p-6 max-h-[80%]">
             <HStack className="justify-between items-center mb-6">
-              <Heading size="lg" className="text-slate-900">Filteri</Heading>
-              <Pressable onPress={() => setShowFilters(false)} className="w-10 h-10 items-center justify-center">
-                <Ionicons name="close" size={28} color="#64748b" />
+              <HStack space="sm" className="items-center">
+                <Box className="w-10 h-10 rounded-full bg-blue-50 items-center justify-center">
+                  <Ionicons name="filter" size={20} color="#2563eb" />
+                </Box>
+                <Heading size="lg" className="text-gray-900">Filteri i pretraga</Heading>
+              </HStack>
+              <Pressable
+                onPress={() => setShowFilters(false)}
+                style={{ minHeight: 44, minWidth: 44 }}
+                className="items-center justify-center"
+              >
+                <Ionicons name="close-circle" size={28} color="#9ca3af" />
               </Pressable>
             </HStack>
 
             <ScrollView showsVerticalScrollIndicator={false}>
               <VStack space="md">
-                <VStack space="xs">
-                  <Text size="sm" bold className="text-slate-700">Pretraga</Text>
-                  <Input variant="outline" size="lg">
+                <VStack space="sm">
+                  <Text size="sm" bold className="text-gray-700">Pretraga</Text>
+                  <Input variant="outline" size="lg" className="bg-gray-50 border-2 border-gray-200">
                     <InputField
                       placeholder="Pretraži po opštini, adresi..."
                       value={searchTerm}
@@ -277,51 +307,63 @@ export default function WorkOrdersScreen({ navigation }) {
                   </Input>
                 </VStack>
 
-                <VStack space="xs">
-                  <Text size="sm" bold className="text-slate-700">Status naloga</Text>
-                  <Box className="flex-row flex-wrap gap-2">
+                <VStack space="sm">
+                  <Text size="sm" bold className="text-gray-700">Status naloga</Text>
+                  <VStack space="xs">
                     {[
-                      { value: '', label: 'Svi', icon: 'apps-outline' },
-                      { value: 'nezavrsen', label: 'Nezavršeni', icon: 'time-outline' },
-                      { value: 'zavrsen', label: 'Završeni', icon: 'checkmark-circle-outline' },
-                      { value: 'odlozen', label: 'Odloženi', icon: 'pause-circle-outline' }
+                      { value: '', label: 'Svi nalozi', icon: 'apps' },
+                      { value: 'nezavrsen', label: 'Nezavršeni', icon: 'time' },
+                      { value: 'zavrsen', label: 'Završeni', icon: 'checkmark-circle' },
+                      { value: 'odlozen', label: 'Odloženi', icon: 'pause-circle' }
                     ].map((status) => (
                       <Pressable
                         key={status.value}
-                        className={`flex-1 min-w-[45%] px-4 py-3.5 rounded-xl border ${
+                        className={`px-4 py-3.5 rounded-xl border-2 ${
                           statusFilter === status.value
-                            ? 'bg-blue-600 border-blue-600'
-                            : 'bg-white border-slate-200'
+                            ? 'bg-blue-50 border-blue-600'
+                            : 'bg-white border-gray-200'
                         }`}
                         onPress={() => setStatusFilter(status.value)}
                       >
-                        <HStack space="xs" className="items-center justify-center">
-                          <Ionicons
-                            name={status.icon}
-                            size={16}
-                            color={statusFilter === status.value ? '#fff' : '#64748b'}
-                          />
+                        <HStack space="sm" className="items-center">
+                          <Box className={`w-8 h-8 rounded-full items-center justify-center ${
+                            statusFilter === status.value ? 'bg-blue-100' : 'bg-gray-100'
+                          }`}>
+                            <Ionicons
+                              name={status.icon}
+                              size={18}
+                              color={statusFilter === status.value ? '#2563eb' : '#6b7280'}
+                            />
+                          </Box>
                           <Text
                             size="sm"
                             bold
-                            className={statusFilter === status.value ? 'text-white' : 'text-slate-700'}
+                            className={statusFilter === status.value ? 'text-blue-700' : 'text-gray-700'}
                           >
                             {status.label}
                           </Text>
                         </HStack>
                       </Pressable>
                     ))}
-                  </Box>
+                  </VStack>
                 </VStack>
 
-                <Button action="primary" size="lg" onPress={() => setShowFilters(false)} className="mt-2">
-                  <ButtonText>Primeni filtere</ButtonText>
-                </Button>
+                <Pressable
+                  onPress={() => setShowFilters(false)}
+                  className="rounded-xl"
+                >
+                  <Box className="bg-blue-600 rounded-xl py-3.5 active:bg-blue-700">
+                    <HStack space="sm" className="items-center justify-center">
+                      <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                      <Text size="sm" bold className="text-white">Primeni filtere</Text>
+                    </HStack>
+                  </Box>
+                </Pressable>
               </VStack>
             </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
-    </LinearGradient>
+    </Box>
   );
 }

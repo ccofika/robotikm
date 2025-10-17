@@ -13,7 +13,18 @@
       "bundleIdentifier": "com.robotik.mobile"
     },
     "android": {
-      "package": "com.robotik.mobile"
-    }
+      "package": "com.robotik.mobile",
+      "useNextNotificationsApi": true
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#9333ea",
+          "androidMode": "default",
+          "androidCollapsedTitle": "Robotik notifikacije"
+        }
+      ]
+    ]
   }
 }

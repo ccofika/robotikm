@@ -104,65 +104,84 @@ export default function EquipmentScreen() {
   };
 
   const renderEquipmentItem = ({ item }) => (
-    <Card variant="elevated" size="md" className="mb-3 border-l-4 border-l-green-600">
-      <VStack space="sm">
-        <HStack className="justify-between items-center">
-          <Box className="bg-green-50 px-3 py-1 rounded-md">
-            <Text size="xs" bold className="text-green-600">
-              {item.category}
-            </Text>
-          </Box>
-          <HStack space="xs" className="items-center">
-            <Ionicons name="calendar-outline" size={12} color="#64748b" />
-            <Text size="xs" className="text-slate-600">
-              {formatDate(item.assignedAt)}
-            </Text>
+    <Box className="bg-white mb-3 p-4 rounded-2xl shadow-sm border border-gray-100">
+      <HStack space="sm" className="items-center">
+        <Box className="w-12 h-12 rounded-full bg-green-50 items-center justify-center">
+          <Ionicons name="hardware-chip" size={24} color="#059669" />
+        </Box>
+        <VStack className="flex-1" space="xs">
+          <HStack className="justify-between items-center mb-1">
+            <Box className="bg-green-100 rounded-full px-3 py-1">
+              <Text size="xs" bold className="text-green-700">
+                {item.category}
+              </Text>
+            </Box>
+            <HStack space="xs" className="items-center">
+              <Ionicons name="calendar-outline" size={12} color="#6b7280" />
+              <Text size="xs" className="text-gray-500">
+                {formatDate(item.assignedAt)}
+              </Text>
+            </HStack>
           </HStack>
-        </HStack>
-        <VStack space="xs">
-          <Text size="md" bold className="text-slate-900">
+          <Text size="md" bold className="text-gray-900">
             {item.description}
           </Text>
           <HStack space="xs">
-            <Text size="sm" bold className="text-slate-600">S/N:</Text>
-            <Text size="sm" className="text-slate-700 font-mono">
+            <Text size="xs" bold className="text-gray-600">S/N:</Text>
+            <Text size="xs" className="text-gray-700 font-mono">
               {item.serialNumber}
             </Text>
           </HStack>
         </VStack>
-      </VStack>
-    </Card>
+      </HStack>
+    </Box>
   );
 
   return (
-    <Box className="flex-1 bg-slate-50">
-      {/* Header */}
-      <HStack className="bg-white px-6 py-4 border-b border-slate-200 justify-between items-center" style={{ paddingTop: insets.top + 16 }}>
-        <Heading size="xl" className="text-slate-900">Moja Oprema</Heading>
+    <Box className="flex-1 bg-gray-50">
+      {/* Header - Material Design 3 */}
+      <HStack className="bg-white px-4 py-3 border-b border-gray-100 justify-between items-center" style={{ paddingTop: insets.top + 12 }}>
+        <HStack space="sm" className="items-center">
+          <Box className="w-10 h-10 rounded-full bg-green-50 items-center justify-center">
+            <Ionicons name="hardware-chip" size={20} color="#059669" />
+          </Box>
+          <Heading size="lg" className="text-gray-900">Moja Oprema</Heading>
+        </HStack>
         <Pressable
           onPress={() => setShowFilters(true)}
-          className="bg-blue-600 p-3 rounded-lg active:bg-blue-700"
+          style={{ minHeight: 44, minWidth: 44 }}
+          className="bg-blue-50 rounded-xl items-center justify-center active:bg-blue-100"
         >
-          <Ionicons name="search-outline" size={20} color="#fff" />
+          <Ionicons name="search-outline" size={22} color="#2563eb" />
         </Pressable>
       </HStack>
 
-      {/* Stats */}
-      <Box className="bg-white p-4 mb-2">
+      {/* Stats Cards - Material Design 3 */}
+      <Box className="px-4 py-4 bg-white mb-2">
         <HStack space="sm">
-          <Card size="sm" className="flex-1 border-l-4 border-l-blue-600">
+          <Box className="flex-1 bg-blue-50 p-4 rounded-2xl border border-blue-100">
             <VStack space="xs">
-              <Text size="2xl" bold className="text-slate-900">{stats.total}</Text>
-              <Text size="xs" className="text-slate-600 uppercase">Ukupno</Text>
+              <HStack space="xs" className="items-center mb-1">
+                <Box className="w-6 h-6 rounded-full bg-blue-100 items-center justify-center">
+                  <Ionicons name="layers" size={14} color="#2563eb" />
+                </Box>
+              </HStack>
+              <Text size="2xl" bold className="text-blue-700">{stats.total}</Text>
+              <Text size="xs" className="text-blue-600 uppercase tracking-wide">Ukupno</Text>
             </VStack>
-          </Card>
+          </Box>
           {Object.entries(stats.byCategory).slice(0, 2).map(([category, count]) => (
-            <Card key={category} size="sm" className="flex-1 border-l-4 border-l-green-600">
+            <Box key={category} className="flex-1 bg-green-50 p-4 rounded-2xl border border-green-100">
               <VStack space="xs">
-                <Text size="2xl" bold className="text-slate-900">{count}</Text>
-                <Text size="xs" className="text-slate-600 uppercase" numberOfLines={1}>{category}</Text>
+                <HStack space="xs" className="items-center mb-1">
+                  <Box className="w-6 h-6 rounded-full bg-green-100 items-center justify-center">
+                    <Ionicons name="checkmark-circle" size={14} color="#059669" />
+                  </Box>
+                </HStack>
+                <Text size="2xl" bold className="text-green-700">{count}</Text>
+                <Text size="xs" className="text-green-600 uppercase tracking-wide" numberOfLines={1}>{category}</Text>
               </VStack>
-            </Card>
+            </Box>
           ))}
         </HStack>
       </Box>
@@ -175,62 +194,86 @@ export default function EquipmentScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
           <Box className="flex-1 items-center justify-center p-12">
-            <Text size="md" className="text-slate-500 text-center">
-              {searchTerm || categoryFilter ? 'Nema rezultata' : 'Nemate zadužene opreme'}
+            <Box className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-4">
+              <Ionicons name="hardware-chip-outline" size={40} color="#9ca3af" />
+            </Box>
+            <Text size="md" bold className="text-gray-700 text-center mb-2">
+              {searchTerm || categoryFilter ? 'Nema rezultata' : 'Nema opreme'}
+            </Text>
+            <Text size="sm" className="text-gray-500 text-center">
+              {searchTerm || categoryFilter ? 'Pokušajte sa drugačijom pretragom' : 'Trenutno nemate zadužene opreme'}
             </Text>
           </Box>
         }
         ListFooterComponent={
           sortedEquipment.length > itemsPerPage ? (
-            <HStack space="md" className="py-6 px-4 mt-4 justify-between items-center">
-              <Pressable
-                onPress={() => paginate(currentPage - 1)}
-                disabled={currentPage === 1}
-                className={`w-11 h-11 rounded-lg items-center justify-center ${
-                  currentPage === 1 ? 'bg-slate-300' : 'bg-blue-600 active:bg-blue-700'
-                }`}
-              >
-                <Text size="xl" bold className={currentPage === 1 ? 'text-slate-500' : 'text-white'}>
-                  ‹
-                </Text>
-              </Pressable>
+            <Box className="bg-white mx-4 mt-4 p-4 rounded-2xl shadow-sm border border-gray-100">
+              <HStack space="sm" className="justify-between items-center">
+                <Pressable
+                  onPress={() => paginate(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  style={{ minHeight: 44, minWidth: 44 }}
+                  className={`rounded-xl items-center justify-center ${
+                    currentPage === 1 ? 'bg-gray-100' : 'bg-blue-50 active:bg-blue-100'
+                  }`}
+                >
+                  <Ionicons
+                    name="chevron-back"
+                    size={20}
+                    color={currentPage === 1 ? '#9ca3af' : '#2563eb'}
+                  />
+                </Pressable>
 
-              <Box className="flex-1 items-center">
-                <Text size="sm" className="text-slate-600 font-semibold">
-                  Stranica {currentPage} od {totalPages}
-                </Text>
-              </Box>
+                <Box className="flex-1 items-center">
+                  <Text size="sm" bold className="text-gray-700">
+                    Stranica {currentPage} od {totalPages}
+                  </Text>
+                </Box>
 
-              <Pressable
-                onPress={() => paginate(currentPage + 1)}
-                disabled={currentPage === totalPages}
-                className={`w-11 h-11 rounded-lg items-center justify-center ${
-                  currentPage === totalPages ? 'bg-slate-300' : 'bg-blue-600 active:bg-blue-700'
-                }`}
-              >
-                <Text size="xl" bold className={currentPage === totalPages ? 'text-slate-500' : 'text-white'}>
-                  ›
-                </Text>
-              </Pressable>
-            </HStack>
+                <Pressable
+                  onPress={() => paginate(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  style={{ minHeight: 44, minWidth: 44 }}
+                  className={`rounded-xl items-center justify-center ${
+                    currentPage === totalPages ? 'bg-gray-100' : 'bg-blue-50 active:bg-blue-100'
+                  }`}
+                >
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color={currentPage === totalPages ? '#9ca3af' : '#2563eb'}
+                  />
+                </Pressable>
+              </HStack>
+            </Box>
           ) : null
         }
       />
 
+      {/* Filters Modal - Material Design 3 */}
       <Modal visible={showFilters} animationType="slide" transparent onRequestClose={() => setShowFilters(false)}>
         <Pressable onPress={() => setShowFilters(false)} className="flex-1 bg-black/50 justify-end">
           <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl p-6 max-h-[80%]">
             <HStack className="justify-between items-center mb-6">
-              <Heading size="lg" className="text-slate-900">Filteri</Heading>
-              <Pressable onPress={() => setShowFilters(false)}>
-                <Ionicons name="close" size={28} color="#64748b" />
+              <HStack space="sm" className="items-center">
+                <Box className="w-10 h-10 rounded-full bg-blue-50 items-center justify-center">
+                  <Ionicons name="options" size={20} color="#2563eb" />
+                </Box>
+                <Heading size="lg" className="text-gray-900">Filteri i pretraga</Heading>
+              </HStack>
+              <Pressable
+                onPress={() => setShowFilters(false)}
+                style={{ minHeight: 44, minWidth: 44 }}
+                className="items-center justify-center"
+              >
+                <Ionicons name="close-circle" size={28} color="#9ca3af" />
               </Pressable>
             </HStack>
 
             <VStack space="md">
-              <VStack space="xs">
-                <Text size="sm" bold className="text-slate-700">Pretraga</Text>
-                <Input variant="outline" size="lg">
+              <VStack space="sm">
+                <Text size="sm" bold className="text-gray-700">Pretraga</Text>
+                <Input variant="outline" size="lg" className="bg-gray-50 border-2 border-gray-200">
                   <InputField
                     placeholder="Pretraži po S/N ili opisu..."
                     value={searchTerm}
@@ -239,9 +282,17 @@ export default function EquipmentScreen() {
                 </Input>
               </VStack>
 
-              <Button action="primary" size="lg" onPress={() => setShowFilters(false)}>
-                <ButtonText>Primeni</ButtonText>
-              </Button>
+              <Pressable
+                onPress={() => setShowFilters(false)}
+                className="rounded-xl"
+              >
+                <Box className="bg-blue-600 rounded-xl py-3.5 active:bg-blue-700">
+                  <HStack space="sm" className="items-center justify-center">
+                    <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                    <Text size="sm" bold className="text-white">Primeni filtere</Text>
+                  </HStack>
+                </Box>
+              </Pressable>
             </VStack>
           </Pressable>
         </Pressable>

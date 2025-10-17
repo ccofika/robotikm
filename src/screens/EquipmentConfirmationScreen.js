@@ -8,6 +8,7 @@ import {
   Alert,
   StatusBar,
   BackHandler,
+  TouchableOpacity,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -60,13 +61,19 @@ const EquipmentConfirmationScreen = ({ visible, onComplete }) => {
   }, [visible]);
 
   const handleConfirm = async () => {
-    if (!currentEquipment) return;
+    if (!currentEquipment) {
+      console.log('EquipmentConfirmation: No current equipment');
+      return;
+    }
 
+    console.log('EquipmentConfirmation: Confirming equipment:', currentEquipment._id);
     try {
       setLoading(true);
       await confirmEquipment(currentEquipment._id);
+      console.log('EquipmentConfirmation: Equipment confirmed successfully');
       Alert.alert('Uspešno', 'Oprema je potvrđena!');
     } catch (error) {
+      console.error('EquipmentConfirmation: Error confirming equipment:', error);
       Alert.alert('Greška', 'Došlo je do greške pri potvrđivanju opreme.');
     } finally {
       setLoading(false);
@@ -79,15 +86,21 @@ const EquipmentConfirmationScreen = ({ visible, onComplete }) => {
       return;
     }
 
-    if (!currentEquipment) return;
+    if (!currentEquipment) {
+      console.log('EquipmentConfirmation: No current equipment for rejection');
+      return;
+    }
 
+    console.log('EquipmentConfirmation: Rejecting equipment:', currentEquipment._id, 'Reason:', rejectionReason.trim());
     try {
       setLoading(true);
       await rejectEquipment(currentEquipment._id, rejectionReason.trim());
+      console.log('EquipmentConfirmation: Equipment rejected successfully');
       Alert.alert('Uspešno', 'Oprema je odbijena i vraćena u magacin.');
       setShowRejectModal(false);
       setRejectionReason('');
     } catch (error) {
+      console.error('EquipmentConfirmation: Error rejecting equipment:', error);
       Alert.alert('Greška', 'Došlo je do greške pri odbijanju opreme.');
     } finally {
       setLoading(false);
@@ -126,201 +139,193 @@ const EquipmentConfirmationScreen = ({ visible, onComplete }) => {
       transparent={false}
       onRequestClose={() => {}}
     >
-      <StatusBar barStyle="light-content" backgroundColor="#10b981" />
-      <LinearGradient
-        colors={['#059669', '#10b981', '#34d399']}
-        className="flex-1"
-      >
-        <Box className="flex-1" style={{ paddingTop: insets.top }}>
-          {/* Header */}
-          <VStack space="md" className="px-6 py-5 border-b border-white/20">
-            <Center>
-              <Box className="w-16 h-16 rounded-full items-center justify-center mb-3" style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>
-                <Ionicons name="checkmark-done-circle" size={36} color="#fff" />
-              </Box>
-            </Center>
-            <Heading size="2xl" className="text-white text-center">
+      <StatusBar barStyle="light-content" backgroundColor="#059669" />
+      <Box className="flex-1 bg-gray-50">
+        {/* Header - Material Design 3 */}
+        <Box className="bg-green-600 px-4 py-6" style={{ paddingTop: insets.top + 24 }}>
+          <VStack space="md" className="items-center">
+            <Box className="w-20 h-20 rounded-full bg-white/20 items-center justify-center">
+              <Ionicons name="checkmark-done-circle" size={48} color="#fff" />
+            </Box>
+            <Heading size="xl" className="text-white text-center">
               Potvrda Opreme
             </Heading>
-            <Text size="md" className="text-green-50 text-center">
+            <Text size="sm" className="text-green-100 text-center max-w-[280px]">
               Molimo vas da potvrdite prijem opreme
             </Text>
           </VStack>
+        </Box>
 
-          {/* Progress Bar */}
-          <VStack space="sm" className="px-6 py-4">
-            <Box className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}>
+        {/* Progress Bar */}
+        <Box className="bg-white px-6 py-4 border-b border-gray-100">
+          <VStack space="sm">
+            <Box className="h-2 rounded-full bg-gray-200 overflow-hidden">
               <Box
-                className="h-full rounded-full bg-white"
+                className="h-full rounded-full bg-green-600"
                 style={{ width: `${((currentIndex + 1) / totalEquipment) * 100}%` }}
               />
             </Box>
-            <Text size="md" bold className="text-white text-center">
+            <Text size="sm" bold className="text-gray-700 text-center">
               {currentIndex + 1} od {totalEquipment}
             </Text>
           </VStack>
+        </Box>
 
-          {/* Equipment Card */}
-          <ScrollView
-            className="flex-1"
-            contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 16) }}
-          >
-            <Card variant="elevated" size="lg" className="bg-white">
-              <VStack space="md">
-                {/* Category Badge */}
-                <Box className="px-4 py-2 rounded-full bg-blue-600 self-start">
-                  <Text size="sm" bold className="text-white">
-                    {currentEquipment.category || 'Oprema'}
-                  </Text>
-                </Box>
+        {/* Equipment Card */}
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 16) }}
+        >
+          <Box className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+            <VStack space="md">
+              {/* Category Badge */}
+              <Box className="px-4 py-2 rounded-full bg-blue-600 self-start">
+                <Text size="sm" bold className="text-white">
+                  {currentEquipment.category || 'Oprema'}
+                </Text>
+              </Box>
 
-                {/* Description */}
-                <VStack space="xs">
-                  <Text size="xs" bold className="text-slate-600 uppercase tracking-wide">
-                    OPIS
-                  </Text>
-                  <Text size="lg" bold className="text-slate-900">
-                    {currentEquipment.description || 'N/A'}
-                  </Text>
-                </VStack>
+              {/* Description */}
+              <VStack space="sm">
+                <Text size="xs" bold className="text-gray-500 uppercase">
+                  Opis
+                </Text>
+                <Text size="lg" bold className="text-gray-900">
+                  {currentEquipment.description || 'N/A'}
+                </Text>
+              </VStack>
 
-                {/* Serial Number */}
-                <VStack space="xs">
-                  <Text size="xs" bold className="text-slate-600 uppercase tracking-wide">
-                    SERIJSKI BROJ
+              {/* Serial Number */}
+              <VStack space="sm">
+                <Text size="xs" bold className="text-gray-500 uppercase">
+                  Serijski Broj
+                </Text>
+                <HStack space="sm" className="items-center bg-gray-50 rounded-xl px-3 py-2">
+                  <Box className="w-8 h-8 rounded-full bg-gray-100 items-center justify-center">
+                    <Ionicons name="barcode" size={16} color="#6b7280" />
+                  </Box>
+                  <Text size="md" bold className="text-gray-900 font-mono">
+                    {currentEquipment.serialNumber || 'N/A'}
                   </Text>
+                </HStack>
+              </VStack>
+
+              {/* Status */}
+              <VStack space="sm">
+                <Text size="xs" bold className="text-gray-500 uppercase">
+                  Status
+                </Text>
+                <Box className="px-3 py-2 rounded-xl bg-yellow-100 border border-yellow-200 self-start">
                   <HStack space="xs" className="items-center">
-                    <Ionicons name="barcode-outline" size={18} color="#475569" />
-                    <Text size="md" bold className="text-slate-700">
-                      {currentEquipment.serialNumber || 'N/A'}
+                    <Ionicons name="time" size={16} color="#d97706" />
+                    <Text size="sm" bold className="text-yellow-800">
+                      Čeka potvrdu
                     </Text>
                   </HStack>
-                </VStack>
-
-                {/* Location */}
-                {currentEquipment.location && (
-                  <VStack space="xs">
-                    <Text size="xs" bold className="text-slate-600 uppercase tracking-wide">
-                      LOKACIJA
-                    </Text>
-                    <HStack space="xs" className="items-center">
-                      <Ionicons name="location-outline" size={18} color="#475569" />
-                      <Text size="md" className="text-slate-700">
-                        {currentEquipment.location}
-                      </Text>
-                    </HStack>
-                  </VStack>
-                )}
-
-                {/* Status */}
-                <VStack space="xs">
-                  <Text size="xs" bold className="text-slate-600 uppercase tracking-wide">
-                    STATUS
-                  </Text>
-                  <Box className="px-3 py-2 rounded-xl bg-yellow-100 self-start">
-                    <HStack space="xs" className="items-center">
-                      <Ionicons name="time-outline" size={16} color="#92400e" />
-                      <Text size="sm" bold className="text-yellow-800">
-                        Čeka potvrdu
-                      </Text>
-                    </HStack>
-                  </Box>
-                </VStack>
+                </Box>
               </VStack>
-            </Card>
+            </VStack>
+          </Box>
 
-            {/* Navigation Buttons */}
-            {totalEquipment > 1 && (
-              <HStack space="sm" className="mt-5">
-                <Pressable
-                  onPress={handlePrevious}
-                  disabled={currentIndex === 0}
-                  className="flex-1"
+          {/* Navigation Buttons */}
+          {totalEquipment > 1 && (
+            <HStack space="sm" className="mt-4">
+              <Pressable
+                onPress={handlePrevious}
+                disabled={currentIndex === 0}
+                className="flex-1"
+              >
+                <Box
+                  className={`py-3 rounded-xl items-center ${
+                    currentIndex === 0 ? 'bg-gray-100' : 'bg-white border border-gray-200'
+                  }`}
                 >
-                  <Box
-                    className="py-3.5 rounded-xl items-center"
-                    style={{
-                      backgroundColor: currentIndex === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.9)',
-                    }}
-                  >
-                    <HStack space="xs" className="items-center">
-                      <Ionicons
-                        name="chevron-back"
-                        size={18}
-                        color={currentIndex === 0 ? '#94a3b8' : '#1e293b'}
-                      />
-                      <Text
-                        size="md"
-                        bold
-                        style={{ color: currentIndex === 0 ? '#94a3b8' : '#1e293b' }}
-                      >
-                        Prethodno
-                      </Text>
-                    </HStack>
-                  </Box>
-                </Pressable>
-
-                <Pressable
-                  onPress={handleNext}
-                  disabled={currentIndex === totalEquipment - 1}
-                  className="flex-1"
-                >
-                  <Box
-                    className="py-3.5 rounded-xl items-center"
-                    style={{
-                      backgroundColor: currentIndex === totalEquipment - 1 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.9)',
-                    }}
-                  >
-                    <HStack space="xs" className="items-center">
-                      <Text
-                        size="md"
-                        bold
-                        style={{ color: currentIndex === totalEquipment - 1 ? '#94a3b8' : '#1e293b' }}
-                      >
-                        Sledeće
-                      </Text>
-                      <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={currentIndex === totalEquipment - 1 ? '#94a3b8' : '#1e293b'}
-                      />
-                    </HStack>
-                  </Box>
-                </Pressable>
-              </HStack>
-            )}
-          </ScrollView>
-
-          {/* Action Buttons */}
-          <VStack space="sm" className="px-6 py-4 border-t border-white/20" style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
-            <Pressable onPress={handleConfirm} disabled={loading}>
-              <Box className="bg-white py-4 rounded-xl items-center shadow-lg">
-                {loading ? (
-                  <ActivityIndicator color="#10b981" />
-                ) : (
                   <HStack space="xs" className="items-center">
-                    <Ionicons name="checkmark-circle" size={20} color="#10b981" />
-                    <Text size="lg" bold className="text-green-600">
+                    <Ionicons
+                      name="chevron-back"
+                      size={18}
+                      color={currentIndex === 0 ? '#9ca3af' : '#374151'}
+                    />
+                    <Text
+                      size="sm"
+                      bold
+                      className={currentIndex === 0 ? 'text-gray-400' : 'text-gray-700'}
+                    >
+                      Prethodno
+                    </Text>
+                  </HStack>
+                </Box>
+              </Pressable>
+
+              <Pressable
+                onPress={handleNext}
+                disabled={currentIndex === totalEquipment - 1}
+                className="flex-1"
+              >
+                <Box
+                  className={`py-3 rounded-xl items-center ${
+                    currentIndex === totalEquipment - 1 ? 'bg-gray-100' : 'bg-white border border-gray-200'
+                  }`}
+                >
+                  <HStack space="xs" className="items-center">
+                    <Text
+                      size="sm"
+                      bold
+                      className={currentIndex === totalEquipment - 1 ? 'text-gray-400' : 'text-gray-700'}
+                    >
+                      Sledeće
+                    </Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color={currentIndex === totalEquipment - 1 ? '#9ca3af' : '#374151'}
+                    />
+                  </HStack>
+                </Box>
+              </Pressable>
+            </HStack>
+          )}
+        </ScrollView>
+
+        {/* Action Buttons */}
+        <Box className="bg-white px-4 py-4 border-t border-gray-100" style={{ paddingBottom: Math.max(insets.bottom, 16) }}>
+          <VStack space="sm">
+            <TouchableOpacity
+              onPress={handleConfirm}
+              disabled={loading}
+              activeOpacity={0.7}
+            >
+              <Box className="bg-green-600 py-4 rounded-xl items-center">
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <HStack space="sm" className="items-center">
+                    <Ionicons name="checkmark-circle" size={22} color="#fff" />
+                    <Text size="md" bold className="text-white">
                       Potvrdi Opremu
                     </Text>
                   </HStack>
                 )}
               </Box>
-            </Pressable>
+            </TouchableOpacity>
 
-            <Pressable onPress={openRejectModal} disabled={loading}>
-              <Box className="bg-red-600 py-4 rounded-xl items-center shadow-lg">
-                <HStack space="xs" className="items-center">
-                  <Ionicons name="close-circle" size={20} color="#fff" />
-                  <Text size="lg" bold className="text-white">
+            <TouchableOpacity
+              onPress={openRejectModal}
+              disabled={loading}
+              activeOpacity={0.7}
+            >
+              <Box className="bg-red-600 py-4 rounded-xl items-center">
+                <HStack space="sm" className="items-center">
+                  <Ionicons name="close-circle" size={22} color="#fff" />
+                  <Text size="md" bold className="text-white">
                     Odbij Opremu
                   </Text>
                 </HStack>
               </Box>
-            </Pressable>
+            </TouchableOpacity>
           </VStack>
         </Box>
-      </LinearGradient>
+      </Box>
 
       {/* Reject Modal */}
       <Modal
@@ -336,73 +341,95 @@ const EquipmentConfirmationScreen = ({ visible, onComplete }) => {
         >
           <Pressable
             onPress={(e) => e.stopPropagation()}
-            className="w-full max-w-md"
+            className="w-full max-w-md bg-white rounded-3xl p-6"
           >
-            <Card variant="elevated" size="lg" className="bg-white">
-              <VStack space="md">
-                <HStack className="justify-between items-center">
-                  <Heading size="xl" className="text-slate-900">
+            <VStack space="md">
+              {/* Header with Icon Circle */}
+              <HStack className="justify-between items-center mb-2">
+                <HStack space="sm" className="items-center flex-1">
+                  <Box className="w-12 h-12 rounded-full bg-red-50 items-center justify-center">
+                    <Ionicons name="close-circle" size={24} color="#dc2626" />
+                  </Box>
+                  <Heading size="xl" className="text-gray-900">
                     Razlog Odbijanja
                   </Heading>
-                  <Pressable onPress={closeRejectModal} className="w-10 h-10 items-center justify-center">
-                    <Ionicons name="close" size={28} color="#64748b" />
-                  </Pressable>
                 </HStack>
+                <Pressable
+                  onPress={closeRejectModal}
+                  style={{ minHeight: 44, minWidth: 44 }}
+                  className="items-center justify-center -mr-2"
+                >
+                  <Ionicons name="close" size={28} color="#9ca3af" />
+                </Pressable>
+              </HStack>
 
-                <Text size="sm" className="text-slate-600">
-                  Molimo vas da navedete razlog zašto odbijate ovu opremu:
-                </Text>
+              {/* Description */}
+              <Text size="sm" className="text-gray-600">
+                Molimo vas da navedete razlog zašto odbijate ovu opremu:
+              </Text>
 
-                <TextInput
-                  value={rejectionReason}
-                  onChangeText={setRejectionReason}
-                  placeholder="Unesite razlog..."
-                  multiline
-                  numberOfLines={4}
-                  style={{
-                    borderWidth: 1,
-                    borderColor: '#cbd5e1',
-                    borderRadius: 12,
-                    padding: 12,
-                    fontSize: 16,
-                    color: '#1e293b',
-                    textAlignVertical: 'top',
-                    minHeight: 100,
-                  }}
-                />
+              {/* Text Input */}
+              <TextInput
+                value={rejectionReason}
+                onChangeText={setRejectionReason}
+                placeholder="Unesite razlog..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                numberOfLines={4}
+                style={{
+                  borderWidth: 2,
+                  borderColor: '#e5e7eb',
+                  borderRadius: 16,
+                  padding: 16,
+                  fontSize: 16,
+                  color: '#111827',
+                  textAlignVertical: 'top',
+                  minHeight: 120,
+                  backgroundColor: '#f9fafb',
+                }}
+              />
 
-                <HStack space="sm">
-                  <Pressable onPress={closeRejectModal} disabled={loading} className="flex-1">
-                    <Box className="bg-slate-200 py-3.5 rounded-xl items-center">
-                      <Text size="md" bold className="text-slate-700">
-                        Otkaži
-                      </Text>
-                    </Box>
-                  </Pressable>
+              {/* Action Buttons */}
+              <HStack space="sm" className="mt-2">
+                <TouchableOpacity
+                  onPress={closeRejectModal}
+                  disabled={loading}
+                  activeOpacity={0.7}
+                  style={{ flex: 1 }}
+                >
+                  <Box className="bg-gray-200 py-3.5 rounded-xl items-center">
+                    <Text size="md" bold className="text-gray-700">
+                      Otkaži
+                    </Text>
+                  </Box>
+                </TouchableOpacity>
 
-                  <Pressable
-                    onPress={handleReject}
-                    disabled={loading || !rejectionReason.trim()}
-                    className="flex-1"
+                <TouchableOpacity
+                  onPress={handleReject}
+                  disabled={loading || !rejectionReason.trim()}
+                  activeOpacity={0.7}
+                  style={{ flex: 1 }}
+                >
+                  <Box
+                    className="py-3.5 rounded-xl items-center"
+                    style={{
+                      backgroundColor: loading || !rejectionReason.trim() ? '#fca5a5' : '#dc2626',
+                    }}
                   >
-                    <Box
-                      className="py-3.5 rounded-xl items-center"
-                      style={{
-                        backgroundColor: loading || !rejectionReason.trim() ? '#fca5a5' : '#ef4444',
-                      }}
-                    >
-                      {loading ? (
-                        <ActivityIndicator color="#fff" />
-                      ) : (
+                    {loading ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <HStack space="xs" className="items-center">
+                        <Ionicons name="close-circle" size={18} color="#fff" />
                         <Text size="md" bold className="text-white">
-                          Odbij Opremu
+                          Odbij
                         </Text>
-                      )}
-                    </Box>
-                  </Pressable>
-                </HStack>
-              </VStack>
-            </Card>
+                      </HStack>
+                    )}
+                  </Box>
+                </TouchableOpacity>
+              </HStack>
+            </VStack>
           </Pressable>
         </Pressable>
       </Modal>

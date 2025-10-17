@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../context/AuthContext';
 import { useOverdueWorkOrders } from '../context/OverdueWorkOrdersContext';
 import { useEquipmentConfirmation } from '../context/EquipmentConfirmationContext';
+import { useNotifications } from '../context/NotificationContext';
 
 // Import screens
 import LoginScreen from '../screens/LoginScreen';
@@ -14,6 +15,10 @@ import WorkOrderDetailScreen from '../screens/WorkOrderDetailScreen';
 import EquipmentScreen from '../screens/EquipmentScreen';
 import MaterialsScreen from '../screens/MaterialsScreen';
 import BasicEquipmentScreen from '../screens/BasicEquipmentScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
+
+// Import components
+import NotificationBadge from '../components/NotificationBadge';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -22,6 +27,7 @@ const Tab = createBottomTabNavigator();
 function MainTabNavigator() {
   const { hasPendingEquipment } = useEquipmentConfirmation();
   const { hasOverdueOrders, overdueOrders } = useOverdueWorkOrders();
+  const { unreadCount } = useNotifications();
 
   // Sakrij tab bar ako ima pending equipment ili overdue orders
   const shouldHideTabBar = hasPendingEquipment || hasOverdueOrders;
@@ -80,6 +86,23 @@ function MainTabNavigator() {
           tabBarLabel: 'Osnovna',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="hardware-chip-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{
+          tabBarLabel: 'Notifikacije',
+          tabBarIcon: ({ color, size, focused }) => (
+            <>
+              <Ionicons
+                name={focused ? "notifications" : "notifications-outline"}
+                size={size}
+                color={color}
+              />
+              {unreadCount > 0 && <NotificationBadge count={unreadCount} />}
+            </>
           ),
         }}
       />

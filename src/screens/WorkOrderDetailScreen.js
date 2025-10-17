@@ -55,6 +55,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
   // Form states
   const [selectedEquipment, setSelectedEquipment] = useState('');
+  const [equipmentSearchTerm, setEquipmentSearchTerm] = useState('');
   const [selectedMaterial, setSelectedMaterial] = useState('');
   const [materialQuantity, setMaterialQuantity] = useState('');
   const [removeEquipmentId, setRemoveEquipmentId] = useState('');
@@ -306,6 +307,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       Alert.alert('Uspešno', message);
       setShowEquipmentModal(false);
       setSelectedEquipment('');
+      setEquipmentSearchTerm('');
       fetchWorkOrder();
     } catch (error) {
       console.error('Greška pri dodavanju opreme:', error);
@@ -617,13 +619,13 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   const getStatusInfo = () => {
     switch (workOrder.status) {
       case 'zavrsen':
-        return { label: 'Završen', icon: 'checkmark-circle', color: '#10b981' };
+        return { label: 'Završen', icon: 'checkmark-circle', color: '#059669', bgColor: '#d1fae5' };
       case 'odlozen':
-        return { label: 'Odložen', icon: 'pause-circle', color: '#f59e0b' };
+        return { label: 'Odložen', icon: 'pause-circle', color: '#d97706', bgColor: '#fef3c7' };
       case 'otkazan':
-        return { label: 'Otkazan', icon: 'close-circle', color: '#ef4444' };
+        return { label: 'Otkazan', icon: 'close-circle', color: '#dc2626', bgColor: '#fee2e2' };
       default:
-        return { label: 'U toku', icon: 'time', color: '#3b82f6' };
+        return { label: 'U toku', icon: 'time', color: '#2563eb', bgColor: '#dbeafe' };
     }
   };
 
@@ -647,39 +649,61 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     return assignedToMatch && statusMatch && notAssignedToUser;
   });
 
+  const filteredAvailableEquipment = availableEquipment.filter(eq => {
+    if (!equipmentSearchTerm) return true;
+    const searchLower = equipmentSearchTerm.toLowerCase();
+    return (
+      eq.description?.toLowerCase().includes(searchLower) ||
+      eq.serialNumber?.toLowerCase().includes(searchLower) ||
+      eq.category?.toLowerCase().includes(searchLower)
+    );
+  });
+
   return (
     <Box className="flex-1 bg-gray-50">
-      {/* Header with Status - Compact */}
-      <Box className="bg-white border-b border-gray-200 px-4 py-2">
-        <HStack space="sm" className="items-center">
-          <Box className="w-8 h-8 rounded-full bg-gray-100 items-center justify-center">
-            <Ionicons name={statusInfo.icon} size={16} color={statusInfo.color} />
-          </Box>
-          <VStack className="flex-1" space="xs">
-            <HStack className="items-center" space="xs">
-              <Text size="xs" className="text-gray-500 uppercase tracking-wide">{statusInfo.label}</Text>
-              <Text size="xs" className="text-gray-400">•</Text>
-              <Heading size="sm" className="text-gray-900">{workOrder.municipality}</Heading>
+      {/* Header with Status - Modern Badge Design */}
+      <Box className="bg-white px-4 py-3 border-b border-gray-100">
+        <VStack space="sm">
+          {/* Status Badge - Pill Shape */}
+          <Box
+            style={{
+              backgroundColor: statusInfo.bgColor,
+              alignSelf: 'flex-start',
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 16,
+            }}
+          >
+            <HStack space="xs" className="items-center">
+              <Ionicons name={statusInfo.icon} size={14} color={statusInfo.color} />
+              <Text size="xs" bold style={{ color: statusInfo.color }}>
+                {statusInfo.label}
+              </Text>
             </HStack>
+          </Box>
+
+          {/* Municipality and Metadata */}
+          <VStack space="xs">
+            <Heading size="md" className="text-gray-900">{workOrder.municipality}</Heading>
             <HStack space="sm" className="items-center">
               <HStack space="xs" className="items-center">
-                <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
-                <Text size="xs" className="text-gray-500">
-                  {new Date(workOrder.date).toLocaleDateString('sr-RS', { day: '2-digit', month: 'short' })}
+                <Ionicons name="calendar-outline" size={14} color="#6b7280" />
+                <Text size="xs" className="text-gray-600">
+                  {new Date(workOrder.date).toLocaleDateString('sr-RS', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </Text>
               </HStack>
               {workOrder.time && (
                 <>
                   <Text size="xs" className="text-gray-400">•</Text>
                   <HStack space="xs" className="items-center">
-                    <Ionicons name="time-outline" size={12} color="#9ca3af" />
-                    <Text size="xs" className="text-gray-500">{workOrder.time}</Text>
+                    <Ionicons name="time-outline" size={14} color="#6b7280" />
+                    <Text size="xs" className="text-gray-600">{workOrder.time}</Text>
                   </HStack>
                 </>
               )}
             </HStack>
           </VStack>
-        </HStack>
+        </VStack>
       </Box>
 
       <ScrollView
@@ -687,50 +711,52 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         contentContainerStyle={{ paddingBottom: isCompleted ? 20 : 140 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Location Section */}
-        <Box className="bg-white p-4 border-b border-gray-200">
+        {/* Location Section - Material Design Card */}
+        <Box className="bg-white mx-4 mt-4 p-4 rounded-2xl shadow-sm border border-gray-100">
           <VStack space="md">
-            <Text size="xs" bold className="text-gray-500 uppercase tracking-wide">Lokacija</Text>
-            <VStack space="sm">
-              <HStack space="sm" className="items-start">
-                <Ionicons name="location" size={20} color="#3b82f6" style={{ marginTop: 2 }} />
-                <VStack className="flex-1" space="xs">
-                  <Text size="md" className="text-gray-900">{workOrder.address}</Text>
-                  <Text size="sm" className="text-gray-500">{workOrder.type}</Text>
-                </VStack>
+            <HStack space="sm" className="items-center">
+              <Box className="w-10 h-10 rounded-full bg-blue-50 items-center justify-center">
+                <Ionicons name="location" size={20} color="#2563eb" />
+              </Box>
+              <VStack className="flex-1">
+                <Text size="sm" bold className="text-gray-900">{workOrder.address}</Text>
+                <Text size="xs" className="text-gray-500">{workOrder.type}</Text>
+              </VStack>
+            </HStack>
+            <Pressable
+              onPress={() => openMaps(workOrder.address, workOrder.municipality)}
+              style={{ minHeight: 48 }}
+              className="bg-blue-600 rounded-xl active:bg-blue-700"
+            >
+              <HStack space="sm" className="items-center justify-center py-3">
+                <Ionicons name="navigate" size={20} color="#fff" />
+                <Text size="sm" bold className="text-white">Otvori navigaciju</Text>
               </HStack>
-              <Pressable
-                onPress={() => openMaps(workOrder.address, workOrder.municipality)}
-                className="bg-blue-600 rounded-2xl py-4 active:bg-blue-700"
-              >
-                <HStack space="sm" className="items-center justify-center">
-                  <Ionicons name="navigate" size={20} color="#fff" />
-                  <Text size="md" bold className="text-white">Otvori navigaciju</Text>
-                </HStack>
-              </Pressable>
-            </VStack>
+            </Pressable>
           </VStack>
         </Box>
 
-        {/* Contact Section */}
+        {/* Contact Section - Material Design Card */}
         {(workOrder.userName || workOrder.userPhone) && (
-          <Box className="bg-white mt-3 p-4 border-b border-gray-200">
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border border-gray-100">
             <VStack space="md">
-              <Text size="xs" bold className="text-gray-500 uppercase tracking-wide">Kontakt</Text>
               {workOrder.userName && (
                 <HStack space="sm" className="items-center">
-                  <Ionicons name="person-circle-outline" size={20} color="#9ca3af" />
-                  <Text size="md" className="text-gray-900">{workOrder.userName}</Text>
+                  <Box className="w-10 h-10 rounded-full bg-gray-50 items-center justify-center">
+                    <Ionicons name="person" size={20} color="#6b7280" />
+                  </Box>
+                  <Text size="sm" className="text-gray-900">{workOrder.userName}</Text>
                 </HStack>
               )}
               {workOrder.userPhone && (
                 <Pressable
                   onPress={() => makePhoneCall(workOrder.userPhone)}
-                  className="bg-green-600 rounded-2xl py-4 active:bg-green-700"
+                  style={{ minHeight: 48 }}
+                  className="bg-green-600 rounded-xl active:bg-green-700"
                 >
-                  <HStack space="sm" className="items-center justify-center">
+                  <HStack space="sm" className="items-center justify-center py-3">
                     <Ionicons name="call" size={20} color="#fff" />
-                    <Text size="md" bold className="text-white">{workOrder.userPhone}</Text>
+                    <Text size="sm" bold className="text-white">{workOrder.userPhone}</Text>
                   </HStack>
                 </Pressable>
               )}
@@ -738,28 +764,35 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           </Box>
         )}
 
-        {/* Equipment Section */}
+        {/* Equipment Section - Material Design Card */}
         {!isCompleted && (
-          <Box className="bg-white mt-3 p-4 border-b border-gray-200">
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border border-gray-100">
             <VStack space="md">
               <HStack className="items-center justify-between">
-                <Text size="xs" bold className="text-gray-500 uppercase tracking-wide">Oprema</Text>
+                <HStack space="sm" className="items-center">
+                  <Box className="w-10 h-10 rounded-full bg-purple-50 items-center justify-center">
+                    <Ionicons name="hardware-chip" size={20} color="#9333ea" />
+                  </Box>
+                  <Text size="sm" bold className="text-gray-900">Oprema</Text>
+                </HStack>
                 <HStack space="xs">
                   <Pressable
                     onPress={() => setShowRemoveBySerialModal(true)}
-                    className="bg-red-50 rounded-full px-3 py-1.5 active:bg-red-100"
+                    style={{ minHeight: 36 }}
+                    className="bg-red-50 rounded-lg px-3 py-2 active:bg-red-100"
                   >
                     <HStack space="xs" className="items-center">
-                      <Ionicons name="remove-circle" size={16} color="#ef4444" />
+                      <Ionicons name="remove-circle" size={16} color="#dc2626" />
                       <Text size="xs" bold className="text-red-600">Ukloni</Text>
                     </HStack>
                   </Pressable>
                   <Pressable
                     onPress={() => setShowEquipmentModal(true)}
-                    className="bg-blue-50 rounded-full px-3 py-1.5 active:bg-blue-100"
+                    style={{ minHeight: 36 }}
+                    className="bg-blue-50 rounded-lg px-3 py-2 active:bg-blue-100"
                   >
                     <HStack space="xs" className="items-center">
-                      <Ionicons name="add" size={16} color="#3b82f6" />
+                      <Ionicons name="add" size={16} color="#2563eb" />
                       <Text size="xs" bold className="text-blue-600">Dodaj</Text>
                     </HStack>
                   </Pressable>
@@ -768,37 +801,45 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
               {userEquipment.length > 0 ? (
                 <VStack space="sm">
                   {userEquipment.map((eq, index) => (
-                    <HStack key={index} className="bg-gray-50 rounded-xl p-3 items-center justify-between">
-                      <VStack className="flex-1" space="xs">
-                        <Text size="sm" bold className="text-gray-900">{eq.description}</Text>
-                        <Text size="xs" className="text-gray-500">S/N: {eq.serialNumber}</Text>
-                      </VStack>
-                      <Pressable
-                        onPress={() => {
-                          setRemoveEquipmentId(eq.id);
-                          setShowRemoveEquipmentModal(true);
-                        }}
-                        className="ml-2"
-                      >
-                        <Ionicons name="close-circle" size={24} color="#ef4444" />
-                      </Pressable>
-                    </HStack>
+                    <Box key={index} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                      <HStack className="items-center justify-between">
+                        <VStack className="flex-1" space="xs">
+                          <Text size="sm" bold className="text-gray-900">{eq.description}</Text>
+                          <Text size="xs" className="text-gray-500">S/N: {eq.serialNumber}</Text>
+                        </VStack>
+                        <Pressable
+                          onPress={() => {
+                            setRemoveEquipmentId(eq.id);
+                            setShowRemoveEquipmentModal(true);
+                          }}
+                          style={{ minHeight: 40, minWidth: 40 }}
+                          className="items-center justify-center ml-2"
+                        >
+                          <Ionicons name="close-circle" size={28} color="#ef4444" />
+                        </Pressable>
+                      </HStack>
+                    </Box>
                   ))}
                 </VStack>
               ) : (
-                <Text size="sm" className="text-gray-400 italic">Nije dodata oprema</Text>
+                <Box className="py-6 items-center">
+                  <Ionicons name="cube-outline" size={32} color="#d1d5db" />
+                  <Text size="sm" className="text-gray-400 italic mt-2">Nije dodata oprema</Text>
+                </Box>
               )}
             </VStack>
           </Box>
         )}
 
-        {/* Removed Equipment Section */}
+        {/* Removed Equipment Section - Warning Card */}
         {removedEquipment.length > 0 && (
-          <Box className="bg-orange-50 mt-3 p-4 border-l-4 border-orange-500">
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border-2 border-orange-300">
             <VStack space="md">
-              <HStack space="xs" className="items-center">
-                <Ionicons name="warning" size={18} color="#f97316" />
-                <Text size="xs" bold className="text-orange-700 uppercase tracking-wide">Uklonjena Oprema</Text>
+              <HStack space="sm" className="items-center">
+                <Box className="w-10 h-10 rounded-full bg-orange-100 items-center justify-center">
+                  <Ionicons name="warning" size={20} color="#ea580c" />
+                </Box>
+                <Text size="sm" bold className="text-orange-700">Uklonjena Oprema</Text>
               </HStack>
               <VStack space="sm">
                 {removedEquipment.map((eq, index) => {
@@ -843,18 +884,24 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           </Box>
         )}
 
-        {/* Materials Section */}
+        {/* Materials Section - Material Design Card */}
         {!isCompleted && (
-          <Box className="bg-white mt-3 p-4 border-b border-gray-200">
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border border-gray-100">
             <VStack space="md">
               <HStack className="items-center justify-between">
-                <Text size="xs" bold className="text-gray-500 uppercase tracking-wide">Materijali</Text>
+                <HStack space="sm" className="items-center">
+                  <Box className="w-10 h-10 rounded-full bg-green-50 items-center justify-center">
+                    <Ionicons name="cube" size={20} color="#059669" />
+                  </Box>
+                  <Text size="sm" bold className="text-gray-900">Materijali</Text>
+                </HStack>
                 <Pressable
                   onPress={() => setShowMaterialsModal(true)}
-                  className="bg-blue-50 rounded-full px-3 py-1.5 active:bg-blue-100"
+                  style={{ minHeight: 36 }}
+                  className="bg-blue-50 rounded-lg px-3 py-2 active:bg-blue-100"
                 >
                   <HStack space="xs" className="items-center">
-                    <Ionicons name="add" size={16} color="#3b82f6" />
+                    <Ionicons name="add" size={16} color="#2563eb" />
                     <Text size="xs" bold className="text-blue-600">Dodaj</Text>
                   </HStack>
                 </Pressable>
@@ -865,36 +912,47 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                     // Handle different ways material data can be structured
                     const materialName = mat.name || mat.type || mat.material?.name || mat.material?.type || 'Nepoznat materijal';
                     return (
-                      <HStack key={index} className="bg-gray-50 rounded-xl p-3 items-center justify-between">
-                        <Text size="sm" className="text-gray-900 flex-1">{materialName}</Text>
-                        <HStack space="sm" className="items-center">
-                          <Box className="bg-blue-100 rounded-full px-3 py-1">
-                            <Text size="sm" bold className="text-blue-700">×{mat.quantity}</Text>
-                          </Box>
-                          <Pressable
-                            onPress={() => handleRemoveMaterial(mat)}
-                            className="ml-1"
-                          >
-                            <Ionicons name="close-circle" size={24} color="#ef4444" />
-                          </Pressable>
+                      <Box key={index} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                        <HStack className="items-center justify-between">
+                          <Text size="sm" className="text-gray-900 flex-1">{materialName}</Text>
+                          <HStack space="sm" className="items-center">
+                            <Box className="bg-blue-100 rounded-full px-3 py-1">
+                              <Text size="sm" bold className="text-blue-700">×{mat.quantity}</Text>
+                            </Box>
+                            <Pressable
+                              onPress={() => handleRemoveMaterial(mat)}
+                              style={{ minHeight: 40, minWidth: 40 }}
+                              className="items-center justify-center ml-1"
+                            >
+                              <Ionicons name="close-circle" size={28} color="#ef4444" />
+                            </Pressable>
+                          </HStack>
                         </HStack>
-                      </HStack>
+                      </Box>
                     );
                   })}
                 </VStack>
               ) : (
-                <Text size="sm" className="text-gray-400 italic">Nisu dodati materijali</Text>
+                <Box className="py-6 items-center">
+                  <Ionicons name="cube-outline" size={32} color="#d1d5db" />
+                  <Text size="sm" className="text-gray-400 italic mt-2">Nisu dodati materijali</Text>
+                </Box>
               )}
             </VStack>
           </Box>
         )}
 
-        {/* Comment Section */}
+        {/* Comment Section - Material Design Card */}
         {!isCompleted && (
-          <Box className="bg-white mt-3 p-4 border-b border-gray-200">
-            <VStack space="sm">
-              <Text size="xs" bold className="text-gray-500 uppercase tracking-wide">Napomena</Text>
-              <Box className="bg-gray-50 border border-gray-300 rounded-xl p-3" style={{ minHeight: 124 }}>
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border border-gray-100">
+            <VStack space="md">
+              <HStack space="sm" className="items-center">
+                <Box className="w-10 h-10 rounded-full bg-amber-50 items-center justify-center">
+                  <Ionicons name="document-text" size={20} color="#d97706" />
+                </Box>
+                <Text size="sm" bold className="text-gray-900">Napomena</Text>
+              </HStack>
+              <Box className="bg-gray-50 border border-gray-200 rounded-xl p-3" style={{ minHeight: 124 }}>
                 <InputField
                   placeholder="Dodaj napomenu o radu..."
                   value={comment}
@@ -909,11 +967,16 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           </Box>
         )}
 
-        {/* Photos Section */}
+        {/* Photos Section - Material Design Card */}
         {!isCompleted && (
-          <Box className="bg-white mt-3 p-4 border-b border-gray-200">
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border border-gray-100">
             <VStack space="md">
-              <Text size="xs" bold className="text-gray-500 uppercase tracking-wide">Fotografije</Text>
+              <HStack space="sm" className="items-center">
+                <Box className="w-10 h-10 rounded-full bg-pink-50 items-center justify-center">
+                  <Ionicons name="images" size={20} color="#ec4899" />
+                </Box>
+                <Text size="sm" bold className="text-gray-900">Fotografije</Text>
+              </HStack>
 
               {/* Capture Buttons */}
               <HStack space="sm">
@@ -1040,46 +1103,73 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           </Box>
         )}
 
-        {/* Admin Comment */}
+        {/* Admin Comment - Alert Card */}
         {workOrder.adminComment && (
-          <Box className="bg-red-50 mt-3 p-4 border-l-4 border-red-500">
-            <VStack space="sm">
-              <HStack space="xs" className="items-center">
-                <Ionicons name="alert-circle" size={18} color="#ef4444" />
-                <Text size="xs" bold className="text-red-700 uppercase tracking-wide">Napomena administracije</Text>
+          <Box className="bg-white mx-4 mt-3 mb-4 p-4 rounded-2xl shadow-sm border-2 border-red-300">
+            <VStack space="md">
+              <HStack space="sm" className="items-center">
+                <Box className="w-10 h-10 rounded-full bg-red-100 items-center justify-center">
+                  <Ionicons name="alert-circle" size={20} color="#dc2626" />
+                </Box>
+                <Text size="sm" bold className="text-red-700">Napomena administracije</Text>
               </HStack>
-              <Text size="sm" className="text-red-700">{workOrder.adminComment}</Text>
+              <Box className="bg-red-50 rounded-lg p-3">
+                <Text size="sm" className="text-red-700">{workOrder.adminComment}</Text>
+              </Box>
             </VStack>
           </Box>
         )}
       </ScrollView>
 
-      {/* Bottom Action Bar */}
+      {/* Bottom Action Bar - Material Design 3 */}
       {!isCompleted && (
-        <Box className="absolute bottom-0 left-0 right-0 bg-white border-t border-gray-200" style={{ paddingBottom: insets.bottom }}>
-          <VStack space="sm" className="p-4">
-            <Button
-              action="primary"
-              size="lg"
+        <Box
+          className="absolute bottom-0 left-0 right-0 bg-white"
+          style={{
+            paddingBottom: insets.bottom,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -4 },
+            shadowOpacity: 0.1,
+            shadowRadius: 12,
+            elevation: 8,
+          }}
+        >
+          <VStack space="sm" className="px-4 py-3">
+            {/* Primary Action - Complete Work Order */}
+            <Pressable
               onPress={handleComplete}
-              isDisabled={saving}
-              className="w-full rounded-2xl py-4"
+              disabled={saving}
+              className="rounded-xl active:opacity-80"
             >
-              {saving ? (
-                <ButtonSpinner />
-              ) : (
-                <HStack space="sm" className="items-center">
-                  <Ionicons name="checkmark-circle" size={22} color="#fff" />
-                  <ButtonText className="text-base">Završi radni nalog</ButtonText>
+              <LinearGradient
+                colors={['#059669', '#10b981']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{ borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16 }}
+              >
+                <HStack space="sm" className="items-center justify-center">
+                  {saving ? (
+                    <>
+                      <ActivityIndicator size="small" color="#fff" />
+                      <Text size="sm" bold className="text-white">Čuvanje...</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                      <Text size="sm" bold className="text-white">Završi radni nalog</Text>
+                    </>
+                  )}
                 </HStack>
-              )}
-            </Button>
+              </LinearGradient>
+            </Pressable>
+
+            {/* Secondary Action - Other Options */}
             <Pressable
               onPress={() => setShowStatusModal(true)}
-              className="bg-gray-100 rounded-2xl py-3.5 active:bg-gray-200"
+              className="bg-gray-50 border border-gray-200 rounded-xl py-3 active:bg-gray-100"
             >
               <HStack space="sm" className="items-center justify-center">
-                <Ionicons name="ellipsis-horizontal" size={20} color="#6b7280" />
+                <Ionicons name="ellipsis-horizontal-circle-outline" size={18} color="#6b7280" />
                 <Text size="sm" bold className="text-gray-700">Druge opcije</Text>
               </HStack>
             </Pressable>
@@ -1087,107 +1177,245 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         </Box>
       )}
 
-      {/* Equipment Modal */}
-      <Modal visible={showEquipmentModal} animationType="slide" transparent onRequestClose={() => setShowEquipmentModal(false)}>
-        <Pressable onPress={() => setShowEquipmentModal(false)} className="flex-1 bg-black/50 justify-end">
-          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl">
-            <VStack className="p-4 pb-8">
-              <HStack className="items-center justify-between mb-4">
-                <Heading size="lg" className="text-gray-900">Dodaj opremu</Heading>
-                <Pressable onPress={() => setShowEquipmentModal(false)} className="w-10 h-10 items-center justify-center">
-                  <Ionicons name="close" size={28} color="#9ca3af" />
-                </Pressable>
-              </HStack>
-              <FlatList
-                data={availableEquipment}
-                keyExtractor={(item) => item._id}
-                style={{ maxHeight: 400 }}
-                renderItem={({ item }) => (
+      {/* Equipment Modal - Material Design 3 */}
+      <Modal visible={showEquipmentModal} animationType="slide" transparent onRequestClose={() => {
+        setShowEquipmentModal(false);
+        setEquipmentSearchTerm('');
+      }}>
+        <Pressable onPress={() => {
+          setShowEquipmentModal(false);
+          setEquipmentSearchTerm('');
+        }} className="flex-1 bg-black/50 justify-end">
+          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl" style={{ height: '85%' }}>
+            <VStack style={{ flex: 1 }}>
+              {/* Fixed Header Section */}
+              <VStack className="px-6 pt-6 pb-4 border-b border-gray-100">
+                {/* Header */}
+                <HStack className="items-center justify-between mb-4">
+                  <HStack space="sm" className="items-center">
+                    <Box className="w-10 h-10 rounded-full bg-purple-50 items-center justify-center">
+                      <Ionicons name="hardware-chip" size={20} color="#9333ea" />
+                    </Box>
+                    <Heading size="lg" className="text-gray-900">Dodaj opremu</Heading>
+                  </HStack>
                   <Pressable
-                    className={`p-4 rounded-xl mb-2 ${selectedEquipment === item._id ? 'bg-blue-50 border-2 border-blue-500' : 'bg-gray-50'}`}
-                    onPress={() => setSelectedEquipment(item._id)}
+                    onPress={() => {
+                      setShowEquipmentModal(false);
+                      setEquipmentSearchTerm('');
+                    }}
+                    style={{ minHeight: 44, minWidth: 44 }}
+                    className="items-center justify-center"
                   >
-                    <VStack space="xs">
-                      <Text size="md" bold className="text-gray-900">{item.description}</Text>
-                      <Text size="sm" className="text-gray-500">S/N: {item.serialNumber}</Text>
-                    </VStack>
+                    <Ionicons name="close-circle" size={28} color="#9ca3af" />
                   </Pressable>
-                )}
-                ListEmptyComponent={
-                  <Center className="p-12">
-                    <Ionicons name="cube-outline" size={48} color="#d1d5db" />
-                    <Text size="sm" className="text-gray-400 mt-4">Nema dostupne opreme</Text>
-                  </Center>
-                }
-              />
-              <Button
-                action="primary"
-                size="lg"
-                onPress={handleAddEquipment}
-                className="mt-4 rounded-2xl py-4"
-                isDisabled={!selectedEquipment}
-              >
-                <ButtonText>Dodaj opremu</ButtonText>
-              </Button>
+                </HStack>
+
+                {/* Search Bar */}
+                <VStack space="sm">
+                  <Text size="sm" bold className="text-gray-700">Pretraži opremu</Text>
+                  <Input variant="outline" size="lg" className="bg-gray-50 border-2 border-gray-200">
+                    <InputField
+                      placeholder="Pretraži po opisu, S/N, kategoriji..."
+                      value={equipmentSearchTerm}
+                      onChangeText={setEquipmentSearchTerm}
+                      autoCapitalize="none"
+                    />
+                    {equipmentSearchTerm.length > 0 && (
+                      <Pressable
+                        onPress={() => setEquipmentSearchTerm('')}
+                        style={{ minHeight: 40, minWidth: 40 }}
+                        className="items-center justify-center"
+                      >
+                        <Ionicons name="close-circle" size={20} color="#9ca3af" />
+                      </Pressable>
+                    )}
+                  </Input>
+                  {equipmentSearchTerm && (
+                    <Text size="xs" className="text-gray-500">
+                      Pronađeno: {filteredAvailableEquipment.length} od {availableEquipment.length}
+                    </Text>
+                  )}
+                </VStack>
+              </VStack>
+
+              {/* Scrollable Equipment List */}
+              <Box style={{ flex: 1 }} className="px-6 pt-4">
+                <FlatList
+                  data={filteredAvailableEquipment}
+                  keyExtractor={(item) => item._id}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item }) => (
+                    <Pressable
+                      className={`p-4 rounded-xl mb-3 border-2 ${
+                        selectedEquipment === item._id
+                          ? 'bg-purple-50 border-purple-500'
+                          : 'bg-gray-50 border-gray-200'
+                      }`}
+                      onPress={() => setSelectedEquipment(item._id)}
+                      style={{ minHeight: 72 }}
+                    >
+                      <HStack space="sm" className="items-center">
+                        <Box
+                          className={`w-8 h-8 rounded-full items-center justify-center ${
+                            selectedEquipment === item._id ? 'bg-purple-500' : 'bg-gray-300'
+                          }`}
+                        >
+                          {selectedEquipment === item._id ? (
+                            <Ionicons name="checkmark" size={18} color="#fff" />
+                          ) : (
+                            <Ionicons name="hardware-chip-outline" size={16} color="#fff" />
+                          )}
+                        </Box>
+                        <VStack className="flex-1" space="xs">
+                          <Text size="sm" bold className="text-gray-900">{item.description}</Text>
+                          <Text size="xs" className="text-gray-500">S/N: {item.serialNumber}</Text>
+                        </VStack>
+                      </HStack>
+                    </Pressable>
+                  )}
+                  ListEmptyComponent={
+                    <Center className="p-12">
+                      <Box className="w-16 h-16 rounded-full bg-gray-100 items-center justify-center mb-3">
+                        <Ionicons name={equipmentSearchTerm ? "search-outline" : "cube-outline"} size={32} color="#d1d5db" />
+                      </Box>
+                      <Text size="sm" bold className="text-gray-600 mb-1">
+                        {equipmentSearchTerm ? 'Nema rezultata' : 'Nema dostupne opreme'}
+                      </Text>
+                      {equipmentSearchTerm && (
+                        <Text size="xs" className="text-gray-400 text-center">
+                          Pokušajte sa drugačijom pretragom
+                        </Text>
+                      )}
+                    </Center>
+                  }
+                />
+              </Box>
+
+              {/* Fixed Action Button */}
+              <Box className="px-6 py-4 border-t border-gray-100">
+                <Pressable
+                  onPress={handleAddEquipment}
+                  disabled={!selectedEquipment}
+                  className="rounded-xl"
+                >
+                  <LinearGradient
+                    colors={selectedEquipment ? ['#9333ea', '#a855f7'] : ['#d1d5db', '#d1d5db']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{ borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16 }}
+                  >
+                    <HStack space="sm" className="items-center justify-center">
+                      <Ionicons name="add-circle" size={20} color="#fff" />
+                      <Text size="sm" bold className="text-white">Dodaj opremu</Text>
+                    </HStack>
+                  </LinearGradient>
+                </Pressable>
+              </Box>
             </VStack>
           </Pressable>
         </Pressable>
       </Modal>
 
-      {/* Materials Modal */}
+      {/* Materials Modal - Material Design 3 */}
       <Modal visible={showMaterialsModal} animationType="slide" transparent onRequestClose={() => setShowMaterialsModal(false)}>
         <Pressable onPress={() => setShowMaterialsModal(false)} className="flex-1 bg-black/50 justify-end">
           <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl">
-            <VStack className="p-4 pb-8">
-              <HStack className="items-center justify-between mb-4">
-                <Heading size="lg" className="text-gray-900">Dodaj materijal</Heading>
-                <Pressable onPress={() => setShowMaterialsModal(false)} className="w-10 h-10 items-center justify-center">
-                  <Ionicons name="close" size={28} color="#9ca3af" />
+            <VStack className="p-6 pb-8">
+              {/* Header */}
+              <HStack className="items-center justify-between mb-6">
+                <HStack space="sm" className="items-center">
+                  <Box className="w-10 h-10 rounded-full bg-green-50 items-center justify-center">
+                    <Ionicons name="cube" size={20} color="#059669" />
+                  </Box>
+                  <Heading size="lg" className="text-gray-900">Dodaj materijal</Heading>
+                </HStack>
+                <Pressable
+                  onPress={() => setShowMaterialsModal(false)}
+                  style={{ minHeight: 44, minWidth: 44 }}
+                  className="items-center justify-center"
+                >
+                  <Ionicons name="close-circle" size={28} color="#9ca3af" />
                 </Pressable>
               </HStack>
+
+              {/* Materials List */}
               <FlatList
                 data={availableMaterials}
                 keyExtractor={(item) => item._id || item.type}
-                style={{ maxHeight: 300 }}
+                style={{ maxHeight: 280 }}
+                showsVerticalScrollIndicator={false}
                 renderItem={({ item }) => (
                   <Pressable
-                    className={`p-4 rounded-xl mb-2 ${selectedMaterial === item._id ? 'bg-blue-50 border-2 border-blue-500' : 'bg-gray-50'}`}
+                    className={`p-4 rounded-xl mb-3 border-2 ${
+                      selectedMaterial === item._id
+                        ? 'bg-green-50 border-green-500'
+                        : 'bg-gray-50 border-gray-200'
+                    }`}
                     onPress={() => setSelectedMaterial(item._id)}
+                    style={{ minHeight: 68 }}
                   >
-                    <HStack className="items-center justify-between">
-                      <VStack className="flex-1">
-                        <Text size="md" bold className="text-gray-900">{item.type || item.name}</Text>
-                        <Text size="sm" className="text-gray-500">Dostupno: {item.quantity}</Text>
-                      </VStack>
+                    <HStack space="sm" className="items-center justify-between">
+                      <HStack space="sm" className="items-center flex-1">
+                        <Box
+                          className={`w-8 h-8 rounded-full items-center justify-center ${
+                            selectedMaterial === item._id ? 'bg-green-500' : 'bg-gray-300'
+                          }`}
+                        >
+                          {selectedMaterial === item._id ? (
+                            <Ionicons name="checkmark" size={18} color="#fff" />
+                          ) : (
+                            <Ionicons name="cube-outline" size={16} color="#fff" />
+                          )}
+                        </Box>
+                        <VStack className="flex-1" space="xs">
+                          <Text size="sm" bold className="text-gray-900">{item.type || item.name}</Text>
+                          <Text size="xs" className="text-gray-500">Dostupno: {item.quantity}</Text>
+                        </VStack>
+                      </HStack>
                     </HStack>
                   </Pressable>
                 )}
                 ListEmptyComponent={
                   <Center className="p-12">
-                    <Ionicons name="cube-outline" size={48} color="#d1d5db" />
-                    <Text size="sm" className="text-gray-400 mt-4">Nema dostupnih materijala</Text>
+                    <Box className="w-16 h-16 rounded-full bg-gray-100 items-center justify-center mb-3">
+                      <Ionicons name="cube-outline" size={32} color="#d1d5db" />
+                    </Box>
+                    <Text size="sm" className="text-gray-400">Nema dostupnih materijala</Text>
                   </Center>
                 }
               />
-              <VStack space="md" className="mt-4">
-                <Input variant="outline" size="lg" className="bg-gray-50">
+
+              {/* Quantity Input */}
+              <VStack space="sm" className="mt-4">
+                <Text size="sm" bold className="text-gray-700">Količina</Text>
+                <Input variant="outline" size="lg" className="bg-gray-50 border-2 border-gray-200">
                   <InputField
-                    placeholder="Količina"
+                    placeholder="Unesite količinu..."
                     value={materialQuantity}
                     onChangeText={setMaterialQuantity}
                     keyboardType="numeric"
                   />
                 </Input>
-                <Button
-                  action="primary"
-                  size="lg"
-                  onPress={handleAddMaterial}
-                  className="rounded-2xl py-4"
-                  isDisabled={!selectedMaterial || !materialQuantity}
-                >
-                  <ButtonText>Dodaj materijal</ButtonText>
-                </Button>
               </VStack>
+
+              {/* Action Button */}
+              <Pressable
+                onPress={handleAddMaterial}
+                disabled={!selectedMaterial || !materialQuantity}
+                className="mt-4 rounded-xl"
+              >
+                <LinearGradient
+                  colors={selectedMaterial && materialQuantity ? ['#059669', '#10b981'] : ['#d1d5db', '#d1d5db']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={{ borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16 }}
+                >
+                  <HStack space="sm" className="items-center justify-center">
+                    <Ionicons name="add-circle" size={20} color="#fff" />
+                    <Text size="sm" bold className="text-white">Dodaj materijal</Text>
+                  </HStack>
+                </LinearGradient>
+              </Pressable>
             </VStack>
           </Pressable>
         </Pressable>

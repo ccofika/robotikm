@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
 import { OfflineProvider } from './src/context/OfflineContext';
+import { NotificationProvider } from './src/context/NotificationContext';
 import { OverdueWorkOrdersProvider, OverdueWorkOrdersContext } from './src/context/OverdueWorkOrdersContext';
 import { EquipmentConfirmationProvider, EquipmentConfirmationContext } from './src/context/EquipmentConfirmationContext';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -144,11 +145,13 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <OfflineProvider>
-          <EquipmentConfirmationProvider>
-            <OverdueWorkOrdersProvider>
-              <AppContent />
-            </OverdueWorkOrdersProvider>
-          </EquipmentConfirmationProvider>
+          <NotificationProvider>
+            <EquipmentConfirmationProvider>
+              <OverdueWorkOrdersProvider>
+                <AppContent />
+              </OverdueWorkOrdersProvider>
+            </EquipmentConfirmationProvider>
+          </NotificationProvider>
         </OfflineProvider>
       </AuthProvider>
     </SafeAreaProvider>
