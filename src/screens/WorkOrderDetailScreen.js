@@ -65,8 +65,8 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
   // Serial removal states
   const [removalEquipmentName, setRemovalEquipmentName] = useState('');
+  const [removalEquipmentDescription, setRemovalEquipmentDescription] = useState('');
   const [removalSerialNumber, setRemovalSerialNumber] = useState('');
-  const [removalCondition, setRemovalCondition] = useState('ispravna');
 
   // Image upload states
   const [uploadingImages, setUploadingImages] = useState(false);
@@ -348,8 +348,8 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   };
 
   const handleRemoveBySerial = async () => {
-    if (!removalEquipmentName.trim() || !removalSerialNumber.trim()) {
-      Alert.alert('Greška', 'Morate popuniti naziv opreme i serijski broj');
+    if (!removalEquipmentName.trim() || !removalEquipmentDescription.trim() || !removalSerialNumber.trim()) {
+      Alert.alert('Greška', 'Morate popuniti naziv opreme, opis i serijski broj');
       return;
     }
 
@@ -360,8 +360,8 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       await dataRepository.removeEquipmentBySerial(orderId, {
         technicianId: user._id,
         equipmentName: removalEquipmentName,
-        serialNumber: removalSerialNumber,
-        condition: removalCondition
+        equipmentDescription: removalEquipmentDescription,
+        serialNumber: removalSerialNumber
       });
 
       const message = isOnline
@@ -372,8 +372,8 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
       // Reset form
       setRemovalEquipmentName('');
+      setRemovalEquipmentDescription('');
       setRemovalSerialNumber('');
-      setRemovalCondition('ispravna');
       setShowRemoveBySerialModal(false);
 
       // Refresh data
@@ -1527,6 +1527,17 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                 </VStack>
 
                 <VStack space="xs">
+                  <Text size="sm" bold className="text-gray-700">Opis opreme</Text>
+                  <Input variant="outline" size="lg" className="bg-gray-50">
+                    <InputField
+                      placeholder="Unesite opis opreme..."
+                      value={removalEquipmentDescription}
+                      onChangeText={setRemovalEquipmentDescription}
+                    />
+                  </Input>
+                </VStack>
+
+                <VStack space="xs">
                   <Text size="sm" bold className="text-gray-700">Serijski broj</Text>
                   <Input variant="outline" size="lg" className="bg-gray-50">
                     <InputField
@@ -1537,64 +1548,12 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                   </Input>
                 </VStack>
 
-                <VStack space="xs">
-                  <Text size="sm" bold className="text-gray-700">Stanje opreme</Text>
-                  <HStack space="sm">
-                    <Pressable
-                      onPress={() => setRemovalCondition('ispravna')}
-                      className={`flex-1 p-4 rounded-xl border-2 ${
-                        removalCondition === 'ispravna'
-                          ? 'bg-green-50 border-green-500'
-                          : 'bg-gray-50 border-gray-200'
-                      }`}
-                    >
-                      <HStack space="sm" className="items-center justify-center">
-                        <Ionicons
-                          name={removalCondition === 'ispravna' ? 'checkmark-circle' : 'checkmark-circle-outline'}
-                          size={20}
-                          color={removalCondition === 'ispravna' ? '#10b981' : '#9ca3af'}
-                        />
-                        <Text
-                          size="sm"
-                          bold
-                          className={removalCondition === 'ispravna' ? 'text-green-700' : 'text-gray-600'}
-                        >
-                          Ispravna
-                        </Text>
-                      </HStack>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => setRemovalCondition('neispravna')}
-                      className={`flex-1 p-4 rounded-xl border-2 ${
-                        removalCondition === 'neispravna'
-                          ? 'bg-red-50 border-red-500'
-                          : 'bg-gray-50 border-gray-200'
-                      }`}
-                    >
-                      <HStack space="sm" className="items-center justify-center">
-                        <Ionicons
-                          name={removalCondition === 'neispravna' ? 'close-circle' : 'close-circle-outline'}
-                          size={20}
-                          color={removalCondition === 'neispravna' ? '#ef4444' : '#9ca3af'}
-                        />
-                        <Text
-                          size="sm"
-                          bold
-                          className={removalCondition === 'neispravna' ? 'text-red-700' : 'text-gray-600'}
-                        >
-                          Neispravna
-                        </Text>
-                      </HStack>
-                    </Pressable>
-                  </HStack>
-                </VStack>
-
                 <Button
                   action="negative"
                   size="lg"
                   onPress={handleRemoveBySerial}
                   className="mt-4 rounded-2xl py-4"
-                  isDisabled={saving || !removalEquipmentName.trim() || !removalSerialNumber.trim()}
+                  isDisabled={saving || !removalEquipmentName.trim() || !removalEquipmentDescription.trim() || !removalSerialNumber.trim()}
                 >
                   {saving ? (
                     <ButtonSpinner />

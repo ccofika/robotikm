@@ -481,13 +481,13 @@ class DataRepository {
    */
   async removeEquipmentBySerial(workOrderId, equipmentData) {
     try {
-      const { technicianId, equipmentName, serialNumber, condition } = equipmentData;
+      const { technicianId, equipmentName, equipmentDescription, serialNumber } = equipmentData;
 
       console.log('[DataRepository] Removing equipment by serial:', {
         workOrderId,
         equipmentName,
-        serialNumber,
-        condition
+        equipmentDescription,
+        serialNumber
       });
 
       // Ako je online, odmah pošalji na server
@@ -497,8 +497,8 @@ class DataRepository {
             workOrderId,
             technicianId,
             equipmentName,
-            serialNumber,
-            condition
+            equipmentDescription,
+            serialNumber
           });
 
           // Odmah refresh removed equipment sa servera
@@ -520,7 +520,7 @@ class DataRepository {
         id: `temp_removed_${Date.now()}`,
         equipmentType: equipmentName,
         serialNumber,
-        condition: condition === 'ispravna' ? 'ispravna' : 'neispravna',
+        condition: 'ispravna', // Sva oprema se automatski dodeljuje tehničaru
         removedAt: new Date().toISOString(),
         notes: `Uklonjeno od tehničara - ${equipmentName}`,
         _pendingSync: true
@@ -539,8 +539,8 @@ class DataRepository {
           workOrderId,
           technicianId,
           equipmentName,
-          serialNumber,
-          condition
+          equipmentDescription,
+          serialNumber
         }
       });
 
