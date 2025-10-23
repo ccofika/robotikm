@@ -12,6 +12,8 @@ import AppNavigator from './src/navigation/AppNavigator';
 import EquipmentConfirmationScreen from './src/screens/EquipmentConfirmationScreen';
 import OverdueWorkOrdersScreen from './src/screens/OverdueWorkOrdersScreen';
 import { NetworkStatusBanner, ConflictResolutionModal, SyncErrorModal } from './src/components/offline';
+import UpdateNotification from './src/components/UpdateNotification';
+import apkUpdateService from './src/services/apkUpdateService';
 
 // Import debugging utilities (samo u dev modu)
 if (__DEV__) {
@@ -30,6 +32,15 @@ function AppContent() {
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [navigationRef, setNavigationRef] = useState(null);
   const [currentRoute, setCurrentRoute] = useState(null);
+
+  // Start APK update checking when app starts
+  useEffect(() => {
+    apkUpdateService.startAutoUpdateCheck();
+
+    return () => {
+      apkUpdateService.stopAutoUpdateCheck();
+    };
+  }, []);
 
   // Provera pending opreme i overdue naloga nakon login-a
   useEffect(() => {
@@ -105,6 +116,9 @@ function AppContent() {
     <>
       {/* Network Status Banner - Prikazuje se uvek na vrhu */}
       <NetworkStatusBanner />
+
+      {/* APK Update Notification - Shows above everything */}
+      <UpdateNotification />
 
       <AppNavigator onNavigationReady={(navRef) => setNavigationRef(navRef)} />
       <StatusBar style="auto" />

@@ -17,9 +17,6 @@ allprojects {
       google()
       mavenCentral()
       maven { url 'https://www.jitpack.io' }
-      maven {
-        url "$rootDir/../node_modules/react-native-background-fetch/android/libs"
-      }
     }
   }
 

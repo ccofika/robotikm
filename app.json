@@ -2,7 +2,7 @@
   "expo": {
     "name": "Robotik Mobile",
     "slug": "robotikm",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "assetBundlePatterns": [
@@ -14,6 +14,7 @@
     },
     "android": {
       "package": "com.robotik.mobile",
+      "versionCode": 2,
       "useNextNotificationsApi": true
     },
     "plugins": [
@@ -25,6 +26,11 @@
           "androidCollapsedTitle": "Robotik notifikacije"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "7c5bfec7-0a8a-49f6-89b4-7408977feb4f"
+      }
+    }
   }
 }
