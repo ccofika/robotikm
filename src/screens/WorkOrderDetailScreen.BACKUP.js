@@ -3,12 +3,11 @@
 
 
 import React, { useState, useEffect, useContext } from 'react';
-import { View, ScrollView, Pressable, Alert, Image, Linking, Platform, Modal, FlatList, ActivityIndicator } from 'react-native';
+import { ScrollView, Pressable, Alert, Image, Linking, Platform, Modal, FlatList, ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { AuthContext } from '../context/AuthContext';
 import { useOffline } from '../context/OfflineContext';
 import dataRepository from '../services/dataRepository';
@@ -61,14 +60,6 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   const [materialQuantity, setMaterialQuantity] = useState('');
   const [removeEquipmentId, setRemoveEquipmentId] = useState('');
   const [removeReason, setRemoveReason] = useState('');
-
-  // Postpone & Cancel states
-  const [showPostponeModal, setShowPostponeModal] = useState(false);
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [postponeDate, setPostponeDate] = useState(new Date());
-  const [postponeTime, setPostponeTime] = useState(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showTimePicker, setShowTimePicker] = useState(false);
   const [postponeComment, setPostponeComment] = useState('');
   const [cancelComment, setCancelComment] = useState('');
 
@@ -274,22 +265,16 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           style: 'destructive',
           onPress: async () => {
             try {
-              setShowImageModal(false);
-
               // Handle both string URLs and objects with url/uri properties
               const imageUri = typeof imageUrl === 'string' ? imageUrl : (imageUrl.url || imageUrl.uri);
-
-              // Koristi dataRepository za offline-first pristup
-              await dataRepository.deleteWorkOrderImage(user._id, orderId, imageUri);
+              await api.delete(`/api/workorders/${orderId}/images`, {
+                data: { imageUrl: imageUri }
+              });
 
               // Refresh work order data
               await fetchWorkOrder();
 
-              const message = isOnline
-                ? 'Slika je obrisana'
-                : 'Slika je označena za brisanje i biće obrisana kada se povežete na internet';
-
-              Alert.alert('Uspešno', message);
+              Alert.alert('Uspešno', 'Slika je obrisana');
             } catch (error) {
               console.error('Greška pri brisanju slike:', error);
               Alert.alert('Greška', 'Neuspešno brisanje slike');
@@ -372,27 +357,12 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
     try {
       // Koristi dataRepository za offline-first uklanjanje opreme po serijskom broju
-      const result = await dataRepository.removeEquipmentBySerial(orderId, {
+      await dataRepository.removeEquipmentBySerial(orderId, {
         technicianId: user._id,
         equipmentName: removalEquipmentName,
         equipmentDescription: removalEquipmentDescription,
         serialNumber: removalSerialNumber
       });
-
-      // Proveri da li je oprema već uklonjena
-      if (result.alreadyRemoved) {
-        Alert.alert('Obaveštenje', result.message || 'Ova oprema je već uklonjena u ovom radnom nalogu');
-
-        // Reset form i zatvori modal
-        setRemovalEquipmentName('');
-        setRemovalEquipmentDescription('');
-        setRemovalSerialNumber('');
-        setShowRemoveBySerialModal(false);
-
-        // Refresh data da prikažemo trenutno stanje
-        fetchWorkOrder();
-        return;
-      }
 
       const message = isOnline
         ? 'Oprema je uspešno uklonjena'
@@ -540,40 +510,16 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   };
 
   const handlePostpone = async () => {
-    // Validacija komentara
-    if (!postponeComment || postponeComment.trim() === '') {
-      Alert.alert('Greška', 'Morate uneti razlog odlaganja radnog naloga');
-      return;
-    }
-
-    // Kombinuj datum i vreme
-    const selectedDateTime = new Date(postponeDate);
-    selectedDateTime.setHours(postponeTime.getHours(), postponeTime.getMinutes(), 0, 0);
-
-    // Validacija maksimalnog odlaganja (48 sati)
-    const now = new Date();
-    const maxPostponeDate = new Date(now.getTime() + (48 * 60 * 60 * 1000)); // 48 sati u budućnosti
-
-    if (selectedDateTime > maxPostponeDate) {
-      Alert.alert('Greška', 'Radni nalog može biti odložen maksimalno 48 sati. Za duže odlaganje molimo otkažite radni nalog.');
-      return;
-    }
-
-    if (selectedDateTime < now) {
-      Alert.alert('Greška', 'Datum i vreme odlaganja moraju biti u budućnosti');
+    if (!postponeComment) {
+      Alert.alert('Greška', 'Unesite razlog odlaganja');
       return;
     }
 
     setSaving(true);
     try {
-      const formattedDate = postponeDate.toISOString().split('T')[0];
-      const formattedTime = `${String(postponeTime.getHours()).padStart(2, '0')}:${String(postponeTime.getMinutes()).padStart(2, '0')}`;
-
       await dataRepository.updateWorkOrder(user._id, orderId, {
         status: 'odlozen',
-        postponeDate: formattedDate,
-        postponeTime: formattedTime,
-        postponeComment: postponeComment.trim(),
+        postponeComment,
         comment
       });
 
@@ -582,10 +528,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         : 'Radni nalog je označen kao odložen i biće sinhronizovan kada se povežete na internet';
 
       Alert.alert('Uspešno', message, [
-        { text: 'OK', onPress: () => {
-          setShowPostponeModal(false);
-          navigation.goBack();
-        }}
+        { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (error) {
       console.error('Greška pri odlaganju radnog naloga:', error);
@@ -593,13 +536,13 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       Alert.alert('Greška', errorMessage);
     } finally {
       setSaving(false);
+      setShowStatusModal(false);
     }
   };
 
   const handleCancel = async () => {
-    // Validacija komentara
-    if (!cancelComment || cancelComment.trim() === '') {
-      Alert.alert('Greška', 'Morate uneti razlog otkazivanja radnog naloga');
+    if (!cancelComment) {
+      Alert.alert('Greška', 'Unesite razlog otkazivanja');
       return;
     }
 
@@ -607,7 +550,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     try {
       await dataRepository.updateWorkOrder(user._id, orderId, {
         status: 'otkazan',
-        cancelComment: cancelComment.trim(),
+        cancelComment,
         comment
       });
 
@@ -616,10 +559,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         : 'Radni nalog je označen kao otkazan i biće sinhronizovan kada se povežete na internet';
 
       Alert.alert('Uspešno', message, [
-        { text: 'OK', onPress: () => {
-          setShowCancelModal(false);
-          navigation.goBack();
-        }}
+        { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (error) {
       console.error('Greška pri otkazivanju radnog naloga:', error);
@@ -627,6 +567,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       Alert.alert('Greška', errorMessage);
     } finally {
       setSaving(false);
+      setShowStatusModal(false);
     }
   };
 
@@ -719,586 +660,328 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   });
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
-      <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={{
-          paddingTop: insets.top,
-          paddingBottom: insets.bottom
-        }}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Modern Header with Status */}
-        <View style={{
-          backgroundColor: '#ffffff',
-          paddingTop: 12,
-          paddingBottom: 16,
-          paddingHorizontal: 20,
-          borderBottomWidth: 1,
-          borderBottomColor: '#e5e7eb',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.05,
-          shadowRadius: 4,
-          elevation: 3,
-        }}>
+    <Box className="flex-1 bg-gray-50">
+      {/* Header with Status - Modern Badge Design */}
+      <Box className="bg-white px-4 py-3 border-b border-gray-100">
+        <VStack space="sm">
           {/* Status Badge - Pill Shape */}
-          <View style={{
-            backgroundColor: statusInfo.bgColor,
-            alignSelf: 'flex-start',
-            paddingHorizontal: 14,
-            paddingVertical: 7,
-            borderRadius: 20,
-            marginBottom: 12,
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name={statusInfo.icon} size={16} color={statusInfo.color} style={{ marginRight: 6 }} />
-              <Text style={{ fontSize: 13, fontWeight: '700', color: statusInfo.color }}>
-                {statusInfo.label}
-              </Text>
-            </View>
-          </View>
-
-          {/* Municipality and Metadata */}
-          <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
-            {workOrder.municipality}
-          </Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 16 }}>
-              <Ionicons name="calendar-outline" size={15} color="#6b7280" style={{ marginRight: 6 }} />
-              <Text style={{ fontSize: 13, color: '#6b7280', fontWeight: '500' }}>
-                {new Date(workOrder.date).toLocaleDateString('sr-RS', { day: '2-digit', month: 'short', year: 'numeric' })}
-              </Text>
-            </View>
-            {workOrder.time && (
-              <>
-                <Text style={{ fontSize: 13, color: '#d1d5db', marginHorizontal: 6 }}>•</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name="time-outline" size={15} color="#6b7280" style={{ marginRight: 6 }} />
-                  <Text style={{ fontSize: 13, color: '#6b7280', fontWeight: '500' }}>{workOrder.time}</Text>
-                </View>
-              </>
-            )}
-          </View>
-        </View>
-        {/* Location Section - Modern Card */}
-        <View style={{
-          backgroundColor: '#ffffff',
-          marginHorizontal: 20,
-          marginTop: 16,
-          padding: 18,
-          borderRadius: 16,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 3,
-          elevation: 2,
-          borderWidth: 1,
-          borderColor: '#f3f4f6',
-        }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-            <View style={{
-              width: 44,
-              height: 44,
-              borderRadius: 22,
-              backgroundColor: '#eff6ff',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginRight: 12,
-            }}>
-              <Ionicons name="location" size={22} color="#2563eb" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827', marginBottom: 2 }}>
-                {workOrder.address}
-              </Text>
-              <Text style={{ fontSize: 13, color: '#6b7280', fontWeight: '500' }}>
-                {workOrder.type}
-              </Text>
-            </View>
-          </View>
-          <Pressable
-            onPress={() => openMaps(workOrder.address, workOrder.municipality)}
+          <Box
             style={{
-              backgroundColor: '#2563eb',
-              borderRadius: 12,
-              paddingVertical: 14,
-              paddingHorizontal: 16,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'center',
+              backgroundColor: statusInfo.bgColor,
+              alignSelf: 'flex-start',
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 16,
             }}
           >
-            <Ionicons name="navigate" size={20} color="#fff" style={{ marginRight: 8 }} />
-            <Text style={{ fontSize: 15, fontWeight: '700', color: '#ffffff' }}>
-              Otvori navigaciju
-            </Text>
-          </Pressable>
-        </View>
+            <HStack space="xs" className="items-center">
+              <Ionicons name={statusInfo.icon} size={14} color={statusInfo.color} />
+              <Text size="xs" bold style={{ color: statusInfo.color }}>
+                {statusInfo.label}
+              </Text>
+            </HStack>
+          </Box>
 
-        {/* Contact Section - Modern Card */}
+          {/* Municipality and Metadata */}
+          <VStack space="xs">
+            <Heading size="md" className="text-gray-900">{workOrder.municipality}</Heading>
+            <HStack space="sm" className="items-center">
+              <HStack space="xs" className="items-center">
+                <Ionicons name="calendar-outline" size={14} color="#6b7280" />
+                <Text size="xs" className="text-gray-600">
+                  {new Date(workOrder.date).toLocaleDateString('sr-RS', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </Text>
+              </HStack>
+              {workOrder.time && (
+                <>
+                  <Text size="xs" className="text-gray-400">•</Text>
+                  <HStack space="xs" className="items-center">
+                    <Ionicons name="time-outline" size={14} color="#6b7280" />
+                    <Text size="xs" className="text-gray-600">{workOrder.time}</Text>
+                  </HStack>
+                </>
+              )}
+            </HStack>
+          </VStack>
+        </VStack>
+      </Box>
+
+      <ScrollView
+        className="flex-1"
+        contentContainerStyle={{ paddingBottom: isCompleted ? 20 : 140 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Location Section - Material Design Card */}
+        <Box className="bg-white mx-4 mt-4 p-4 rounded-2xl shadow-sm border border-gray-100">
+          <VStack space="md">
+            <HStack space="sm" className="items-center">
+              <Box className="w-10 h-10 rounded-full bg-blue-50 items-center justify-center">
+                <Ionicons name="location" size={20} color="#2563eb" />
+              </Box>
+              <VStack className="flex-1">
+                <Text size="sm" bold className="text-gray-900">{workOrder.address}</Text>
+                <Text size="xs" className="text-gray-500">{workOrder.type}</Text>
+              </VStack>
+            </HStack>
+            <Pressable
+              onPress={() => openMaps(workOrder.address, workOrder.municipality)}
+              style={{ minHeight: 48 }}
+              className="bg-blue-600 rounded-xl active:bg-blue-700"
+            >
+              <HStack space="sm" className="items-center justify-center py-3">
+                <Ionicons name="navigate" size={20} color="#fff" />
+                <Text size="sm" bold className="text-white">Otvori navigaciju</Text>
+              </HStack>
+            </Pressable>
+          </VStack>
+        </Box>
+
+        {/* Contact Section - Material Design Card */}
         {(workOrder.userName || workOrder.userPhone) && (
-          <View style={{
-            backgroundColor: '#ffffff',
-            marginHorizontal: 20,
-            marginTop: 12,
-            padding: 18,
-            borderRadius: 16,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05,
-            shadowRadius: 3,
-            elevation: 2,
-            borderWidth: 1,
-            borderColor: '#f3f4f6',
-          }}>
-            {workOrder.userName && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: workOrder.userPhone ? 14 : 0 }}>
-                <View style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  backgroundColor: '#f9fafb',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginRight: 12,
-                }}>
-                  <Ionicons name="person" size={22} color="#6b7280" />
-                </View>
-                <Text style={{ fontSize: 15, fontWeight: '500', color: '#111827' }}>
-                  {workOrder.userName}
-                </Text>
-              </View>
-            )}
-            {workOrder.userPhone && (
-              <Pressable
-                onPress={() => makePhoneCall(workOrder.userPhone)}
-                style={{
-                  backgroundColor: '#059669',
-                  borderRadius: 12,
-                  paddingVertical: 14,
-                  paddingHorizontal: 16,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Ionicons name="call" size={20} color="#fff" style={{ marginRight: 8 }} />
-                <Text style={{ fontSize: 15, fontWeight: '700', color: '#ffffff' }}>
-                  {workOrder.userPhone}
-                </Text>
-              </Pressable>
-            )}
-          </View>
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border border-gray-100">
+            <VStack space="md">
+              {workOrder.userName && (
+                <HStack space="sm" className="items-center">
+                  <Box className="w-10 h-10 rounded-full bg-gray-50 items-center justify-center">
+                    <Ionicons name="person" size={20} color="#6b7280" />
+                  </Box>
+                  <Text size="sm" className="text-gray-900">{workOrder.userName}</Text>
+                </HStack>
+              )}
+              {workOrder.userPhone && (
+                <Pressable
+                  onPress={() => makePhoneCall(workOrder.userPhone)}
+                  style={{ minHeight: 48 }}
+                  className="bg-green-600 rounded-xl active:bg-green-700"
+                >
+                  <HStack space="sm" className="items-center justify-center py-3">
+                    <Ionicons name="call" size={20} color="#fff" />
+                    <Text size="sm" bold className="text-white">{workOrder.userPhone}</Text>
+                  </HStack>
+                </Pressable>
+              )}
+            </VStack>
+          </Box>
         )}
 
-        {/* Details Section - Modern Card */}
+        {/* Details Section - Material Design Card */}
         {workOrder.details && (
-          <View style={{
-            backgroundColor: '#ffffff',
-            marginHorizontal: 20,
-            marginTop: 12,
-            padding: 18,
-            borderRadius: 16,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05,
-            shadowRadius: 3,
-            elevation: 2,
-            borderWidth: 1,
-            borderColor: '#f3f4f6',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-              <View style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: '#eff6ff',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: 12,
-              }}>
-                <Ionicons name="information-circle" size={22} color="#2563eb" />
-              </View>
-              <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>
-                Detalji naloga
-              </Text>
-            </View>
-            <View style={{
-              backgroundColor: '#eff6ff',
-              borderRadius: 12,
-              padding: 14,
-              borderWidth: 1,
-              borderColor: '#dbeafe',
-            }}>
-              <Text style={{ fontSize: 14, color: '#1e3a8a', lineHeight: 20 }}>
-                {workOrder.details}
-              </Text>
-            </View>
-          </View>
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border border-gray-100">
+            <VStack space="md">
+              <HStack space="sm" className="items-center">
+                <Box className="w-10 h-10 rounded-full bg-blue-50 items-center justify-center">
+                  <Ionicons name="information-circle" size={20} color="#2563eb" />
+                </Box>
+                <Text size="sm" bold className="text-gray-900">Detalji naloga</Text>
+              </HStack>
+              <Box className="bg-blue-50 rounded-xl p-3 border border-blue-200">
+                <Text size="sm" className="text-blue-900">{workOrder.details}</Text>
+              </Box>
+            </VStack>
+          </Box>
         )}
 
-        {/* Equipment Section - Modern Card */}
+        {/* Equipment Section - Material Design Card */}
         {!isCompleted && (
-          <View style={{
-            backgroundColor: '#ffffff',
-            marginHorizontal: 20,
-            marginTop: 12,
-            padding: 18,
-            borderRadius: 16,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05,
-            shadowRadius: 3,
-            elevation: 2,
-            borderWidth: 1,
-            borderColor: '#f3f4f6',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  backgroundColor: '#faf5ff',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginRight: 12,
-                }}>
-                  <Ionicons name="hardware-chip" size={22} color="#9333ea" />
-                </View>
-                <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>
-                  Oprema
-                </Text>
-              </View>
-              <View style={{ flexDirection: 'row' }}>
-                <Pressable
-                  onPress={() => setShowRemoveBySerialModal(true)}
-                  style={{
-                    backgroundColor: '#fef2f2',
-                    borderRadius: 10,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    marginRight: 8,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Ionicons name="build-outline" size={16} color="#dc2626" style={{ marginRight: 4 }} />
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#dc2626' }}>Demontiraj</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => setShowEquipmentModal(true)}
-                  style={{
-                    backgroundColor: '#eff6ff',
-                    borderRadius: 10,
-                    paddingHorizontal: 12,
-                    paddingVertical: 8,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Ionicons name="add" size={16} color="#2563eb" style={{ marginRight: 4 }} />
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#2563eb' }}>Dodaj</Text>
-                </Pressable>
-              </View>
-            </View>
-            {userEquipment.length > 0 ? (
-              <View>
-                {userEquipment.map((eq, index) => (
-                  <View key={index} style={{
-                    backgroundColor: '#f9fafb',
-                    borderRadius: 12,
-                    padding: 14,
-                    marginBottom: index < userEquipment.length - 1 ? 8 : 0,
-                    borderWidth: 1,
-                    borderColor: '#f3f4f6',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827', marginBottom: 4 }}>
-                        {eq.description}
-                      </Text>
-                      <Text style={{ fontSize: 12, color: '#6b7280', fontWeight: '500' }}>
-                        S/N: {eq.serialNumber}
-                      </Text>
-                    </View>
-                    <Pressable
-                      onPress={() => {
-                        setRemoveEquipmentId(eq.id);
-                        setShowRemoveEquipmentModal(true);
-                      }}
-                      style={{
-                        width: 40,
-                        height: 40,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        marginLeft: 8,
-                      }}
-                    >
-                      <Ionicons name="close-circle" size={28} color="#ef4444" />
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
-            ) : (
-              <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-                <Ionicons name="cube-outline" size={36} color="#d1d5db" style={{ marginBottom: 8 }} />
-                <Text style={{ fontSize: 14, color: '#9ca3af', fontStyle: 'italic' }}>
-                  Nije dodata oprema
-                </Text>
-              </View>
-            )}
-          </View>
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border border-gray-100">
+            <VStack space="md">
+              <HStack className="items-center justify-between">
+                <HStack space="sm" className="items-center">
+                  <Box className="w-10 h-10 rounded-full bg-purple-50 items-center justify-center">
+                    <Ionicons name="hardware-chip" size={20} color="#9333ea" />
+                  </Box>
+                  <Text size="sm" bold className="text-gray-900">Oprema</Text>
+                </HStack>
+                <HStack space="xs">
+                  <Pressable
+                    onPress={() => setShowRemoveBySerialModal(true)}
+                    style={{ minHeight: 36 }}
+                    className="bg-red-50 rounded-lg px-3 py-2 active:bg-red-100"
+                  >
+                    <HStack space="xs" className="items-center">
+                      <Ionicons name="remove-circle" size={16} color="#dc2626" />
+                      <Text size="xs" bold className="text-red-600">Ukloni</Text>
+                    </HStack>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setShowEquipmentModal(true)}
+                    style={{ minHeight: 36 }}
+                    className="bg-blue-50 rounded-lg px-3 py-2 active:bg-blue-100"
+                  >
+                    <HStack space="xs" className="items-center">
+                      <Ionicons name="add" size={16} color="#2563eb" />
+                      <Text size="xs" bold className="text-blue-600">Dodaj</Text>
+                    </HStack>
+                  </Pressable>
+                </HStack>
+              </HStack>
+              {userEquipment.length > 0 ? (
+                <VStack space="sm">
+                  {userEquipment.map((eq, index) => (
+                    <Box key={index} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                      <HStack className="items-center justify-between">
+                        <VStack className="flex-1" space="xs">
+                          <Text size="sm" bold className="text-gray-900">{eq.description}</Text>
+                          <Text size="xs" className="text-gray-500">S/N: {eq.serialNumber}</Text>
+                        </VStack>
+                        <Pressable
+                          onPress={() => {
+                            setRemoveEquipmentId(eq.id);
+                            setShowRemoveEquipmentModal(true);
+                          }}
+                          style={{ minHeight: 40, minWidth: 40 }}
+                          className="items-center justify-center ml-2"
+                        >
+                          <Ionicons name="close-circle" size={28} color="#ef4444" />
+                        </Pressable>
+                      </HStack>
+                    </Box>
+                  ))}
+                </VStack>
+              ) : (
+                <Box className="py-6 items-center">
+                  <Ionicons name="cube-outline" size={32} color="#d1d5db" />
+                  <Text size="sm" className="text-gray-400 italic mt-2">Nije dodata oprema</Text>
+                </Box>
+              )}
+            </VStack>
+          </Box>
         )}
 
         {/* Removed Equipment Section - Warning Card */}
         {removedEquipment.length > 0 && (
-          <View style={{
-            backgroundColor: '#ffffff',
-            marginHorizontal: 20,
-            marginTop: 12,
-            padding: 18,
-            borderRadius: 16,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05,
-            shadowRadius: 3,
-            elevation: 2,
-            borderWidth: 2,
-            borderColor: '#fdba74',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
-              <View style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: '#fed7aa',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: 12,
-              }}>
-                <Ionicons name="warning" size={22} color="#ea580c" />
-              </View>
-              <Text style={{ fontSize: 15, fontWeight: '700', color: '#c2410c' }}>
-                Uklonjena Oprema
-              </Text>
-            </View>
-            <View>
-              {removedEquipment.map((eq, index) => {
-                let equipmentName = eq.equipmentType || 'Nepoznata oprema';
-                if (eq.notes && eq.notes.includes(' - ')) {
-                  const noteParts = eq.notes.split(' - ');
-                  if (noteParts.length > 1) {
-                    equipmentName = noteParts[1];
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border-2 border-orange-300">
+            <VStack space="md">
+              <HStack space="sm" className="items-center">
+                <Box className="w-10 h-10 rounded-full bg-orange-100 items-center justify-center">
+                  <Ionicons name="warning" size={20} color="#ea580c" />
+                </Box>
+                <Text size="sm" bold className="text-orange-700">Uklonjena Oprema</Text>
+              </HStack>
+              <VStack space="sm">
+                {removedEquipment.map((eq, index) => {
+                  // Backend vraća equipmentType (enum) i notes
+                  // Pokušaj da ekstraktuješ naziv iz notes ili koristi equipmentType
+                  let equipmentName = eq.equipmentType || 'Nepoznata oprema';
+
+                  // Ako postoji notes i sadrži " - ", izvuci deo posle " - "
+                  if (eq.notes && eq.notes.includes(' - ')) {
+                    const noteParts = eq.notes.split(' - ');
+                    if (noteParts.length > 1) {
+                      equipmentName = noteParts[1];
+                    }
                   }
-                }
-                const serialNumber = eq.serialNumber || 'N/A';
-                const removalDate = eq.removedAt || eq.removalDate;
 
-                return (
-                  <View key={index} style={{
-                    backgroundColor: '#ffffff',
-                    borderRadius: 12,
-                    padding: 14,
-                    marginBottom: index < removedEquipment.length - 1 ? 8 : 0,
-                    borderWidth: 1,
-                    borderColor: '#fed7aa',
-                  }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827', flex: 1 }}>
-                        {equipmentName}
-                      </Text>
-                      <View style={{
-                        backgroundColor: eq.condition === 'neispravna' ? '#fee2e2' : '#d1fae5',
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 8,
-                      }}>
-                        <Text style={{
-                          fontSize: 11,
-                          fontWeight: '700',
-                          color: eq.condition === 'neispravna' ? '#dc2626' : '#059669',
-                        }}>
-                          {eq.condition === 'neispravna' ? 'Neispravna' : 'Ispravna'}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={{ fontSize: 12, color: '#6b7280', fontWeight: '500', marginBottom: 2 }}>
-                      S/N: {serialNumber}
-                    </Text>
-                    {removalDate && (
-                      <Text style={{ fontSize: 12, color: '#9ca3af', fontWeight: '500' }}>
-                        {new Date(removalDate).toLocaleDateString('sr-RS')}
-                      </Text>
-                    )}
-                  </View>
-                );
-              })}
-            </View>
-          </View>
-        )}
+                  const serialNumber = eq.serialNumber || 'N/A';
+                  const removalDate = eq.removedAt || eq.removalDate;
 
-        {/* Materials Section - Modern Card */}
-        {!isCompleted && (
-          <View style={{
-            backgroundColor: '#ffffff',
-            marginHorizontal: 20,
-            marginTop: 12,
-            padding: 18,
-            borderRadius: 16,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05,
-            shadowRadius: 3,
-            elevation: 2,
-            borderWidth: 1,
-            borderColor: '#f3f4f6',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <View style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  backgroundColor: '#d1fae5',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginRight: 12,
-                }}>
-                  <Ionicons name="cube" size={22} color="#059669" />
-                </View>
-                <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>
-                  Materijali
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => setShowMaterialsModal(true)}
-                style={{
-                  backgroundColor: '#eff6ff',
-                  borderRadius: 10,
-                  paddingHorizontal: 12,
-                  paddingVertical: 8,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                <Ionicons name="add" size={16} color="#2563eb" style={{ marginRight: 4 }} />
-                <Text style={{ fontSize: 12, fontWeight: '700', color: '#2563eb' }}>Dodaj</Text>
-              </Pressable>
-            </View>
-            {usedMaterials.length > 0 ? (
-              <View>
-                {usedMaterials.map((mat, index) => {
-                  const materialName = mat.name || mat.type || mat.material?.name || mat.material?.type || 'Nepoznat materijal';
                   return (
-                    <View key={index} style={{
-                      backgroundColor: '#f9fafb',
-                      borderRadius: 12,
-                      padding: 14,
-                      marginBottom: index < usedMaterials.length - 1 ? 8 : 0,
-                      borderWidth: 1,
-                      borderColor: '#f3f4f6',
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}>
-                      <Text style={{ fontSize: 14, fontWeight: '500', color: '#111827', flex: 1 }}>
-                        {materialName}
-                      </Text>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <View style={{
-                          backgroundColor: '#dbeafe',
-                          borderRadius: 20,
-                          paddingHorizontal: 12,
-                          paddingVertical: 6,
-                          marginRight: 8,
-                        }}>
-                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e40af' }}>
-                            ×{mat.quantity}
+                    <Box key={index} className="bg-white rounded-xl p-3 border border-orange-200">
+                      <VStack space="xs">
+                        <HStack className="items-center justify-between">
+                          <Text size="sm" bold className="text-gray-900">{equipmentName}</Text>
+                          <Box className={`px-2 py-1 rounded-md ${eq.condition === 'neispravna' ? 'bg-red-100' : 'bg-green-100'}`}>
+                            <Text size="xs" bold className={eq.condition === 'neispravna' ? 'text-red-700' : 'text-green-700'}>
+                              {eq.condition === 'neispravna' ? 'Neispravna' : 'Ispravna'}
+                            </Text>
+                          </Box>
+                        </HStack>
+                        <Text size="xs" className="text-gray-600">S/N: {serialNumber}</Text>
+                        {removalDate && (
+                          <Text size="xs" className="text-gray-500">
+                            {new Date(removalDate).toLocaleDateString('sr-RS')}
                           </Text>
-                        </View>
-                        <Pressable
-                          onPress={() => handleRemoveMaterial(mat)}
-                          style={{
-                            width: 40,
-                            height: 40,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          <Ionicons name="close-circle" size={28} color="#ef4444" />
-                        </Pressable>
-                      </View>
-                    </View>
+                        )}
+                      </VStack>
+                    </Box>
                   );
                 })}
-              </View>
-            ) : (
-              <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-                <Ionicons name="cube-outline" size={36} color="#d1d5db" style={{ marginBottom: 8 }} />
-                <Text style={{ fontSize: 14, color: '#9ca3af', fontStyle: 'italic' }}>
-                  Nisu dodati materijali
-                </Text>
-              </View>
-            )}
-          </View>
+              </VStack>
+            </VStack>
+          </Box>
         )}
 
-        {/* Comment Section - Modern Card */}
+        {/* Materials Section - Material Design Card */}
         {!isCompleted && (
-          <View style={{
-            backgroundColor: '#ffffff',
-            marginHorizontal: 20,
-            marginTop: 12,
-            padding: 18,
-            borderRadius: 16,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05,
-            shadowRadius: 3,
-            elevation: 2,
-            borderWidth: 1,
-            borderColor: '#f3f4f6',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-              <View style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: '#fef3c7',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: 12,
-              }}>
-                <Ionicons name="document-text" size={22} color="#d97706" />
-              </View>
-              <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827' }}>
-                Napomena
-              </Text>
-            </View>
-            <View style={{
-              backgroundColor: '#f9fafb',
-              borderWidth: 1,
-              borderColor: '#e5e7eb',
-              borderRadius: 12,
-              padding: 14,
-              minHeight: 124,
-            }}>
-              <InputField
-                placeholder="Dodaj napomenu o radu..."
-                value={comment}
-                onChangeText={setComment}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-                style={{ minHeight: 100, height: 100, fontSize: 14, color: '#111827' }}
-                placeholderTextColor="#9ca3af"
-              />
-            </View>
-          </View>
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border border-gray-100">
+            <VStack space="md">
+              <HStack className="items-center justify-between">
+                <HStack space="sm" className="items-center">
+                  <Box className="w-10 h-10 rounded-full bg-green-50 items-center justify-center">
+                    <Ionicons name="cube" size={20} color="#059669" />
+                  </Box>
+                  <Text size="sm" bold className="text-gray-900">Materijali</Text>
+                </HStack>
+                <Pressable
+                  onPress={() => setShowMaterialsModal(true)}
+                  style={{ minHeight: 36 }}
+                  className="bg-blue-50 rounded-lg px-3 py-2 active:bg-blue-100"
+                >
+                  <HStack space="xs" className="items-center">
+                    <Ionicons name="add" size={16} color="#2563eb" />
+                    <Text size="xs" bold className="text-blue-600">Dodaj</Text>
+                  </HStack>
+                </Pressable>
+              </HStack>
+              {usedMaterials.length > 0 ? (
+                <VStack space="sm">
+                  {usedMaterials.map((mat, index) => {
+                    // Handle different ways material data can be structured
+                    const materialName = mat.name || mat.type || mat.material?.name || mat.material?.type || 'Nepoznat materijal';
+                    return (
+                      <Box key={index} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
+                        <HStack className="items-center justify-between">
+                          <Text size="sm" className="text-gray-900 flex-1">{materialName}</Text>
+                          <HStack space="sm" className="items-center">
+                            <Box className="bg-blue-100 rounded-full px-3 py-1">
+                              <Text size="sm" bold className="text-blue-700">×{mat.quantity}</Text>
+                            </Box>
+                            <Pressable
+                              onPress={() => handleRemoveMaterial(mat)}
+                              style={{ minHeight: 40, minWidth: 40 }}
+                              className="items-center justify-center ml-1"
+                            >
+                              <Ionicons name="close-circle" size={28} color="#ef4444" />
+                            </Pressable>
+                          </HStack>
+                        </HStack>
+                      </Box>
+                    );
+                  })}
+                </VStack>
+              ) : (
+                <Box className="py-6 items-center">
+                  <Ionicons name="cube-outline" size={32} color="#d1d5db" />
+                  <Text size="sm" className="text-gray-400 italic mt-2">Nisu dodati materijali</Text>
+                </Box>
+              )}
+            </VStack>
+          </Box>
+        )}
+
+        {/* Comment Section - Material Design Card */}
+        {!isCompleted && (
+          <Box className="bg-white mx-4 mt-3 p-4 rounded-2xl shadow-sm border border-gray-100">
+            <VStack space="md">
+              <HStack space="sm" className="items-center">
+                <Box className="w-10 h-10 rounded-full bg-amber-50 items-center justify-center">
+                  <Ionicons name="document-text" size={20} color="#d97706" />
+                </Box>
+                <Text size="sm" bold className="text-gray-900">Napomena</Text>
+              </HStack>
+              <Box className="bg-gray-50 border border-gray-200 rounded-xl p-3" style={{ minHeight: 124 }}>
+                <InputField
+                  placeholder="Dodaj napomenu o radu..."
+                  value={comment}
+                  onChangeText={setComment}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                  style={{ minHeight: 100, height: 100 }}
+                />
+              </Box>
+            </VStack>
+          </Box>
         )}
 
         {/* Photos Section - Material Design Card */}
@@ -1439,125 +1122,77 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
         {/* Admin Comment - Alert Card */}
         {workOrder.adminComment && (
-          <View style={{
-            backgroundColor: '#ffffff',
-            marginHorizontal: 20,
-            marginTop: 12,
-            marginBottom: 16,
-            padding: 18,
-            borderRadius: 16,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 1 },
-            shadowOpacity: 0.05,
-            shadowRadius: 3,
-            elevation: 2,
-            borderWidth: 2,
-            borderColor: '#fca5a5',
-          }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-              <View style={{
-                width: 44,
-                height: 44,
-                borderRadius: 22,
-                backgroundColor: '#fee2e2',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginRight: 12,
-              }}>
-                <Ionicons name="alert-circle" size={22} color="#dc2626" />
-              </View>
-              <Text style={{ fontSize: 15, fontWeight: '700', color: '#b91c1c' }}>
-                Napomena administracije
-              </Text>
-            </View>
-            <View style={{
-              backgroundColor: '#fef2f2',
-              borderRadius: 12,
-              padding: 14,
-            }}>
-              <Text style={{ fontSize: 14, color: '#b91c1c', lineHeight: 20 }}>
-                {workOrder.adminComment}
-              </Text>
-            </View>
-          </View>
+          <Box className="bg-white mx-4 mt-3 mb-4 p-4 rounded-2xl shadow-sm border-2 border-red-300">
+            <VStack space="md">
+              <HStack space="sm" className="items-center">
+                <Box className="w-10 h-10 rounded-full bg-red-100 items-center justify-center">
+                  <Ionicons name="alert-circle" size={20} color="#dc2626" />
+                </Box>
+                <Text size="sm" bold className="text-red-700">Napomena administracije</Text>
+              </HStack>
+              <Box className="bg-red-50 rounded-lg p-3">
+                <Text size="sm" className="text-red-700">{workOrder.adminComment}</Text>
+              </Box>
+            </VStack>
+          </Box>
         )}
+      </ScrollView>
 
-        {/* Bottom Action Bar - Modern Design */}
-        {!isCompleted && (
-          <View style={{
-            backgroundColor: '#ffffff',
-            marginHorizontal: 20,
-            marginTop: 16,
-            marginBottom: 20,
-            padding: 18,
-            borderRadius: 16,
+      {/* Bottom Action Bar - Material Design 3 */}
+      {!isCompleted && (
+        <Box
+          className="absolute bottom-0 left-0 right-0 bg-white"
+          style={{
+            paddingBottom: insets.bottom,
             shadowColor: '#000',
-            shadowOffset: { width: 0, height: 2 },
-            shadowOpacity: 0.05,
-            shadowRadius: 4,
-            elevation: 3,
-            borderWidth: 1,
-            borderColor: '#f3f4f6',
-          }}>
+            shadowOffset: { width: 0, height: -4 },
+            shadowOpacity: 0.1,
+            shadowRadius: 12,
+            elevation: 8,
+          }}
+        >
+          <VStack space="sm" className="px-4 py-3">
             {/* Primary Action - Complete Work Order */}
             <Pressable
               onPress={handleComplete}
               disabled={saving}
-              style={{ marginBottom: 10 }}
+              className="rounded-xl active:opacity-80"
             >
               <LinearGradient
                 colors={['#059669', '#10b981']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={{
-                  borderRadius: 14,
-                  paddingVertical: 16,
-                  paddingHorizontal: 16,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
+                style={{ borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16 }}
               >
-                {saving ? (
-                  <>
-                    <ActivityIndicator size="small" color="#fff" style={{ marginRight: 10 }} />
-                    <Text style={{ fontSize: 15, fontWeight: '700', color: '#ffffff' }}>
-                      Čuvanje...
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Ionicons name="checkmark-circle" size={22} color="#fff" style={{ marginRight: 10 }} />
-                    <Text style={{ fontSize: 15, fontWeight: '700', color: '#ffffff' }}>
-                      Završi radni nalog
-                    </Text>
-                  </>
-                )}
+                <HStack space="sm" className="items-center justify-center">
+                  {saving ? (
+                    <>
+                      <ActivityIndicator size="small" color="#fff" />
+                      <Text size="sm" bold className="text-white">Čuvanje...</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                      <Text size="sm" bold className="text-white">Završi radni nalog</Text>
+                    </>
+                  )}
+                </HStack>
               </LinearGradient>
             </Pressable>
 
             {/* Secondary Action - Other Options */}
             <Pressable
               onPress={() => setShowStatusModal(true)}
-              style={{
-                backgroundColor: '#f9fafb',
-                borderWidth: 1,
-                borderColor: '#e5e7eb',
-                borderRadius: 14,
-                paddingVertical: 14,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
+              className="bg-gray-50 border border-gray-200 rounded-xl py-3 active:bg-gray-100"
             >
-              <Ionicons name="ellipsis-horizontal-circle-outline" size={20} color="#6b7280" style={{ marginRight: 8 }} />
-              <Text style={{ fontSize: 15, fontWeight: '700', color: '#6b7280' }}>
-                Druge opcije
-              </Text>
+              <HStack space="sm" className="items-center justify-center">
+                <Ionicons name="ellipsis-horizontal-circle-outline" size={18} color="#6b7280" />
+                <Text size="sm" bold className="text-gray-700">Druge opcije</Text>
+              </HStack>
             </Pressable>
-          </View>
-        )}
-      </ScrollView>
+          </VStack>
+        </Box>
+      )}
 
       {/* Equipment Modal - Material Design 3 */}
       <Modal visible={showEquipmentModal} animationType="slide" transparent onRequestClose={() => {
@@ -1853,7 +1488,10 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
               <Pressable
                 onPress={() => {
                   setShowStatusModal(false);
-                  setTimeout(() => setShowPostponeModal(true), 300);
+                  setTimeout(() => Alert.prompt('Odlaganje naloga', 'Unesite razlog odlaganja:', text => {
+                    setPostponeComment(text);
+                    handlePostpone();
+                  }), 300);
                 }}
                 className="bg-yellow-500 rounded-2xl py-4 active:bg-yellow-600"
               >
@@ -1865,7 +1503,10 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
               <Pressable
                 onPress={() => {
                   setShowStatusModal(false);
-                  setTimeout(() => setShowCancelModal(true), 300);
+                  setTimeout(() => Alert.prompt('Otkazivanje naloga', 'Unesite razlog otkazivanja:', text => {
+                    setCancelComment(text);
+                    handleCancel();
+                  }), 300);
                 }}
                 className="bg-red-500 rounded-2xl py-4 active:bg-red-600"
               >
@@ -1885,7 +1526,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl p-6 pb-8">
             <ScrollView showsVerticalScrollIndicator={false}>
               <HStack className="items-center justify-between mb-6">
-                <Heading size="lg" className="text-gray-900">Demontiraj opremu</Heading>
+                <Heading size="lg" className="text-gray-900">Ukloni opremu po SN</Heading>
                 <Pressable onPress={() => setShowRemoveBySerialModal(false)}>
                   <Ionicons name="close" size={28} color="#9ca3af" />
                 </Pressable>
@@ -1935,244 +1576,12 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                     <ButtonSpinner />
                   ) : (
                     <HStack space="sm" className="items-center">
-                      <Ionicons name="build" size={20} color="#fff" />
-                      <ButtonText>Demontiraj opremu</ButtonText>
+                      <Ionicons name="trash" size={20} color="#fff" />
+                      <ButtonText>Ukloni opremu</ButtonText>
                     </HStack>
                   )}
                 </Button>
               </VStack>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Postpone Modal */}
-      <Modal visible={showPostponeModal} animationType="slide" transparent onRequestClose={() => setShowPostponeModal(false)}>
-        <Pressable onPress={() => setShowPostponeModal(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: insets.bottom + 20 }}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24 }}>
-              {/* Header */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827' }}>Odlaganje termina</Text>
-                <Pressable onPress={() => setShowPostponeModal(false)} style={{ padding: 4 }}>
-                  <Ionicons name="close" size={28} color="#9ca3af" />
-                </Pressable>
-              </View>
-
-              {/* Info Message */}
-              <View style={{ backgroundColor: '#eff6ff', borderWidth: 1, borderColor: '#bfdbfe', borderRadius: 12, padding: 12, marginBottom: 20 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                  <Ionicons name="information-circle" size={20} color="#3b82f6" style={{ marginTop: 2, marginRight: 8 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#1e40af', marginBottom: 4 }}>Napomena:</Text>
-                    <Text style={{ fontSize: 12, color: '#1e3a8a', lineHeight: 18 }}>
-                      Radni nalog može biti odložen maksimalno 48 sati. Za duže odlaganje molimo otkažite radni nalog.
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Datum */}
-              <View style={{ marginBottom: 20 }}>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 }}>Novi datum:</Text>
-                <Pressable
-                  onPress={() => setShowDatePicker(true)}
-                  style={{
-                    backgroundColor: '#f9fafb',
-                    borderWidth: 1,
-                    borderColor: '#d1d5db',
-                    borderRadius: 12,
-                    padding: 16,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between'
-                  }}
-                >
-                  <Text style={{ fontSize: 15, color: '#111827' }}>
-                    {postponeDate.toLocaleDateString('sr-RS', { day: '2-digit', month: 'long', year: 'numeric' })}
-                  </Text>
-                  <Ionicons name="calendar-outline" size={20} color="#6b7280" />
-                </Pressable>
-                <Text style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
-                  Maksimalno: {new Date(Date.now() + (48 * 60 * 60 * 1000)).toLocaleDateString('sr-RS', { day: '2-digit', month: 'long', year: 'numeric' })}
-                </Text>
-              </View>
-
-              {showDatePicker && (
-                <DateTimePicker
-                  value={postponeDate}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={(event, selectedDate) => {
-                    setShowDatePicker(Platform.OS === 'ios');
-                    if (selectedDate) {
-                      setPostponeDate(selectedDate);
-                    }
-                  }}
-                  minimumDate={new Date()}
-                  maximumDate={new Date(Date.now() + (48 * 60 * 60 * 1000))}
-                />
-              )}
-
-              {/* Vreme */}
-              <View style={{ marginBottom: 20 }}>
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 }}>Novo vreme:</Text>
-                <Pressable
-                  onPress={() => setShowTimePicker(true)}
-                  style={{
-                    backgroundColor: '#f9fafb',
-                    borderWidth: 1,
-                    borderColor: '#d1d5db',
-                    borderRadius: 12,
-                    padding: 16,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between'
-                  }}
-                >
-                  <Text style={{ fontSize: 15, color: '#111827' }}>
-                    {`${String(postponeTime.getHours()).padStart(2, '0')}:${String(postponeTime.getMinutes()).padStart(2, '0')}`}
-                  </Text>
-                  <Ionicons name="time-outline" size={20} color="#6b7280" />
-                </Pressable>
-              </View>
-
-              {showTimePicker && (
-                <DateTimePicker
-                  value={postponeTime}
-                  mode="time"
-                  is24Hour={true}
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={(event, selectedTime) => {
-                    setShowTimePicker(Platform.OS === 'ios');
-                    if (selectedTime) {
-                      setPostponeTime(selectedTime);
-                    }
-                  }}
-                />
-              )}
-
-              {/* Razlog odlaganja */}
-              <View style={{ marginBottom: 24 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151' }}>Razlog odlaganja:</Text>
-                  <Text style={{ fontSize: 14, color: '#ef4444', marginLeft: 4 }}>*</Text>
-                </View>
-                <View style={{
-                  backgroundColor: '#f9fafb',
-                  borderWidth: 1,
-                  borderColor: '#d1d5db',
-                  borderRadius: 12,
-                  padding: 12,
-                  minHeight: 120
-                }}>
-                  <InputField
-                    placeholder="Obavezno objasnite razlog odlaganja radnog naloga..."
-                    value={postponeComment}
-                    onChangeText={setPostponeComment}
-                    multiline
-                    numberOfLines={5}
-                    textAlignVertical="top"
-                    style={{ minHeight: 100, fontSize: 14, color: '#111827' }}
-                    placeholderTextColor="#9ca3af"
-                  />
-                </View>
-              </View>
-
-              {/* Submit Button */}
-              <Pressable
-                onPress={handlePostpone}
-                disabled={saving || !postponeComment.trim()}
-                style={{
-                  backgroundColor: (!postponeComment.trim() || saving) ? '#fbbf24' : '#f59e0b',
-                  borderRadius: 14,
-                  paddingVertical: 16,
-                  alignItems: 'center',
-                  opacity: (!postponeComment.trim() || saving) ? 0.6 : 1
-                }}
-              >
-                {saving ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>Odloži nalog</Text>
-                )}
-              </Pressable>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* Cancel Modal */}
-      <Modal visible={showCancelModal} animationType="slide" transparent onRequestClose={() => setShowCancelModal(false)}>
-        <Pressable onPress={() => setShowCancelModal(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: insets.bottom + 20 }}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24 }}>
-              {/* Header */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827' }}>Otkazivanje radnog naloga</Text>
-                <Pressable onPress={() => setShowCancelModal(false)} style={{ padding: 4 }}>
-                  <Ionicons name="close" size={28} color="#9ca3af" />
-                </Pressable>
-              </View>
-
-              {/* Info Message */}
-              <View style={{ backgroundColor: '#fef2f2', borderWidth: 1, borderColor: '#fecaca', borderRadius: 12, padding: 12, marginBottom: 20 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                  <Ionicons name="alert-circle" size={20} color="#ef4444" style={{ marginTop: 2, marginRight: 8 }} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#991b1b', marginBottom: 4 }}>Napomena:</Text>
-                    <Text style={{ fontSize: 12, color: '#7f1d1d', lineHeight: 18 }}>
-                      Molimo objasnite razlog otkazivanja radnog naloga.
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Razlog otkazivanja */}
-              <View style={{ marginBottom: 24 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                  <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151' }}>Razlog otkazivanja:</Text>
-                  <Text style={{ fontSize: 14, color: '#ef4444', marginLeft: 4 }}>*</Text>
-                </View>
-                <View style={{
-                  backgroundColor: '#f9fafb',
-                  borderWidth: 1,
-                  borderColor: '#d1d5db',
-                  borderRadius: 12,
-                  padding: 12,
-                  minHeight: 140
-                }}>
-                  <InputField
-                    placeholder="Obavezno objasnite razlog otkazivanja radnog naloga..."
-                    value={cancelComment}
-                    onChangeText={setCancelComment}
-                    multiline
-                    numberOfLines={6}
-                    textAlignVertical="top"
-                    style={{ minHeight: 120, fontSize: 14, color: '#111827' }}
-                    placeholderTextColor="#9ca3af"
-                  />
-                </View>
-              </View>
-
-              {/* Submit Button */}
-              <Pressable
-                onPress={handleCancel}
-                disabled={saving || !cancelComment.trim()}
-                style={{
-                  backgroundColor: (!cancelComment.trim() || saving) ? '#f87171' : '#ef4444',
-                  borderRadius: 14,
-                  paddingVertical: 16,
-                  alignItems: 'center',
-                  opacity: (!cancelComment.trim() || saving) ? 0.6 : 1
-                }}
-              >
-                {saving ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>Otkaži nalog</Text>
-                )}
-              </Pressable>
             </ScrollView>
           </Pressable>
         </Pressable>
@@ -2211,6 +1620,6 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           </VStack>
         </Pressable>
       </Modal>
-    </View>
+    </Box>
   );
 }

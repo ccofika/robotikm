@@ -1,11 +1,6 @@
 import React from 'react';
-import { Modal, Pressable, ScrollView } from 'react-native';
+import { Modal, Pressable, ScrollView, View, Text } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { VStack } from './ui/vstack';
-import { HStack } from './ui/hstack';
-import { Box } from './ui/box';
-import { Text } from './ui/text';
-import { Heading } from './ui/heading';
 
 export default function EquipmentDetailsModal({ visible, onClose, equipment, title, type }) {
   if (!equipment || equipment.length === 0) {
@@ -33,88 +28,165 @@ export default function EquipmentDetailsModal({ visible, onClose, equipment, tit
     >
       <Pressable
         onPress={onClose}
-        className="flex-1 bg-black/50 justify-end"
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
       >
         <Pressable
           onPress={(e) => e.stopPropagation()}
-          className="bg-white rounded-t-3xl max-h-[80%]"
+          style={{
+            backgroundColor: '#ffffff',
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            maxHeight: '80%',
+          }}
         >
           {/* Header */}
-          <HStack className="justify-between items-center px-6 py-4 border-b border-gray-100">
-            <HStack space="sm" className="items-center flex-1">
-              <Box
-                className="w-10 h-10 rounded-full items-center justify-center"
-                style={{ backgroundColor: iconConfig.bgColor }}
+          <View style={{
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            paddingHorizontal: 24,
+            paddingVertical: 16,
+            borderBottomWidth: 1,
+            borderBottomColor: '#f3f4f6',
+          }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+              <View
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: iconConfig.bgColor,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 12,
+                }}
               >
                 <Ionicons name={iconConfig.name} size={22} color={iconConfig.color} />
-              </Box>
-              <Box className="flex-1">
-                <Heading size="md" className="text-gray-900">
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{
+                  fontSize: 18,
+                  fontWeight: '700',
+                  color: '#111827',
+                }}>
                   {title}
-                </Heading>
-                <Text size="xs" className="text-gray-500">
+                </Text>
+                <Text style={{
+                  fontSize: 12,
+                  color: '#6b7280',
+                }}>
                   {equipment.length} {equipment.length === 1 ? 'stavka' : equipment.length < 5 ? 'stavke' : 'stavki'}
                 </Text>
-              </Box>
-            </HStack>
+              </View>
+            </View>
             <Pressable
               onPress={onClose}
-              style={{ minHeight: 44, minWidth: 44 }}
-              className="items-center justify-center"
+              style={{
+                minHeight: 44,
+                minWidth: 44,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
             >
               <Ionicons name="close" size={28} color="#6b7280" />
             </Pressable>
-          </HStack>
+          </View>
 
           {/* Equipment List */}
-          <ScrollView className="px-6 py-4">
-            <VStack space="sm">
+          <ScrollView style={{ paddingHorizontal: 24, paddingVertical: 16 }}>
+            <View style={{ gap: 12 }}>
               {equipment.map((item, index) => (
-                <Box
+                <View
                   key={item.id || item.serialNumber || index}
-                  className="bg-gray-50 border border-gray-200 rounded-xl p-4"
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    borderWidth: 1,
+                    borderColor: '#e5e7eb',
+                    borderRadius: 12,
+                    padding: 16,
+                  }}
                 >
-                  <VStack space="xs">
-                    {/* Equipment Name */}
-                    <HStack space="xs" className="items-start">
-                      <Box className="w-8 h-8 rounded-full bg-blue-100 items-center justify-center">
-                        <Ionicons name="cube-outline" size={16} color="#2563eb" />
-                      </Box>
-                      <Box className="flex-1">
-                        <Text size="sm" bold className="text-gray-900">
-                          {item.name || 'Nepoznata oprema'}
-                        </Text>
-                        {item.category && (
-                          <Text size="xs" className="text-gray-500 uppercase">
-                            {item.category}
-                          </Text>
-                        )}
-                      </Box>
-                    </HStack>
-
-                    {/* Serial Number */}
-                    <HStack space="xs" className="items-center bg-white rounded-lg px-3 py-2 mt-2">
-                      <Ionicons name="barcode-outline" size={16} color="#6b7280" />
-                      <Text size="sm" className="text-gray-700">
-                        S/N: <Text bold>{item.serialNumber}</Text>
+                  {/* Equipment Name */}
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 }}>
+                    <View style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      backgroundColor: '#dbeafe',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 10,
+                    }}>
+                      <Ionicons name="cube-outline" size={16} color="#2563eb" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{
+                        fontSize: 14,
+                        fontWeight: '600',
+                        color: '#111827',
+                        marginBottom: 2,
+                      }}>
+                        {item.name || 'Nepoznata oprema'}
                       </Text>
-                    </HStack>
-                  </VStack>
-                </Box>
+                      {item.category && (
+                        <Text style={{
+                          fontSize: 11,
+                          color: '#6b7280',
+                          textTransform: 'uppercase',
+                        }}>
+                          {item.category}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+
+                  {/* Serial Number */}
+                  <View style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: '#ffffff',
+                    borderRadius: 8,
+                    paddingHorizontal: 12,
+                    paddingVertical: 8,
+                  }}>
+                    <Ionicons name="barcode-outline" size={16} color="#6b7280" style={{ marginRight: 8 }} />
+                    <Text style={{
+                      fontSize: 13,
+                      color: '#374151',
+                    }}>
+                      S/N: <Text style={{ fontWeight: '600' }}>{item.serialNumber}</Text>
+                    </Text>
+                  </View>
+                </View>
               ))}
-            </VStack>
+            </View>
           </ScrollView>
 
           {/* Footer Button */}
-          <Box className="px-6 py-4 border-t border-gray-100">
-            <Pressable onPress={onClose} className="rounded-xl">
-              <Box className="bg-blue-600 rounded-xl py-3.5 active:bg-blue-700">
-                <Text size="sm" bold className="text-white text-center">
-                  Zatvori
-                </Text>
-              </Box>
+          <View style={{
+            paddingHorizontal: 24,
+            paddingVertical: 16,
+            borderTopWidth: 1,
+            borderTopColor: '#f3f4f6',
+          }}>
+            <Pressable
+              onPress={onClose}
+              style={{
+                backgroundColor: '#2563eb',
+                borderRadius: 12,
+                paddingVertical: 14,
+                alignItems: 'center',
+              }}
+            >
+              <Text style={{
+                fontSize: 14,
+                fontWeight: '600',
+                color: '#ffffff',
+              }}>
+                Zatvori
+              </Text>
             </Pressable>
-          </Box>
+          </View>
         </Pressable>
       </Pressable>
     </Modal>

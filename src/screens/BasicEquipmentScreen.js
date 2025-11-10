@@ -1,16 +1,8 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
-import { FlatList, RefreshControl, Modal, Alert, Pressable } from 'react-native';
+import { View, Text, FlatList, RefreshControl, Modal, Alert, Pressable, ScrollView, TextInput, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 import { techniciansAPI } from '../services/api';
-import { VStack } from '../components/ui/vstack';
-import { HStack } from '../components/ui/hstack';
-import { Box } from '../components/ui/box';
-import { Card } from '../components/ui/card';
-import { Text } from '../components/ui/text';
-import { Heading } from '../components/ui/heading';
-import { Input, InputField } from '../components/ui/input';
-import { Button, ButtonText } from '../components/ui/button';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function BasicEquipmentScreen() {
@@ -20,7 +12,8 @@ export default function BasicEquipmentScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('Sve');
 
   useEffect(() => {
     fetchEquipment();
@@ -45,231 +38,494 @@ export default function BasicEquipmentScreen() {
     fetchEquipment();
   };
 
-  const filteredEquipment = useMemo(() => {
-    return equipment.filter(item =>
-      searchTerm === '' ||
-      item.type?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [equipment, searchTerm]);
+  // Smart category configuration for basic equipment
+  const getCategoryConfig = (equipmentType) => {
+    const type = equipmentType?.toLowerCase() || '';
 
-  const types = useMemo(() => [...new Set(equipment.map(item => item.type))], [equipment]);
+    // Alati - crvena
+    if (type.includes('bušilica') || type.includes('alat') || type.includes('busilica') || type.includes('odvijač') || type.includes('odvijac')) {
+      return { icon: 'hammer', color: '#dc2626', label: 'Alati' };
+    }
 
-  const stats = useMemo(() => ({
-    total: equipment.length,
-    totalQuantity: equipment.reduce((sum, e) => sum + (e.quantity || 0), 0),
-    byType: types.reduce((acc, type) => {
-      const typeItems = equipment.filter(item => item.type === type);
-      acc[type] = {
-        count: typeItems.length,
-        quantity: typeItems.reduce((sum, item) => sum + item.quantity, 0)
-      };
-      return acc;
-    }, {})
-  }), [equipment, types]);
+    // Merači i testeri - plava
+    if (type.includes('merač') || type.includes('merac') || type.includes('tester') || type.includes('multimetar')) {
+      return { icon: 'speedometer', color: '#2563eb', label: 'Merači' };
+    }
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = filteredEquipment.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(filteredEquipment.length / itemsPerPage);
+    // Kablovi i spojevi - zelena
+    if (type.includes('kabl') || type.includes('cable') || type.includes('patch')) {
+      return { icon: 'git-network', color: '#059669', label: 'Kablovi' };
+    }
 
-  const paginate = (pageNumber) => {
-    setCurrentPage(pageNumber);
+    // Adapteri i napajanja - narandžasta
+    if (type.includes('adapter') || type.includes('napajanje') || type.includes('punjač') || type.includes('punjac')) {
+      return { icon: 'battery-charging', color: '#f97316', label: 'Napajanja' };
+    }
+
+    // Laptop/Tablet - ljubičasta
+    if (type.includes('laptop') || type.includes('tablet') || type.includes('računar') || type.includes('racunar')) {
+      return { icon: 'laptop', color: '#9333ea', label: 'Računari' };
+    }
+
+    // Telefon - roze
+    if (type.includes('telefon') || type.includes('mobilni')) {
+      return { icon: 'phone-portrait', color: '#ec4899', label: 'Telefoni' };
+    }
+
+    // Torbe i oprema - braon
+    if (type.includes('torba') || type.includes('ruksak') || type.includes('kofer')) {
+      return { icon: 'briefcase', color: '#92400e', label: 'Torbe' };
+    }
+
+    // Stepenik/Merdevine - tirkizna
+    if (type.includes('stepenik') || type.includes('merdevine') || type.includes('ljestve')) {
+      return { icon: 'trending-up', color: '#14b8a6', label: 'Stepenik' };
+    }
+
+    // Klešta i štipaljke - žuta
+    if (type.includes('klešta') || type.includes('klesta') || type.includes('štipaljka') || type.includes('stipaljka')) {
+      return { icon: 'contract', color: '#eab308', label: 'Klešta' };
+    }
+
+    // Default - siva
+    return { icon: 'hardware-chip', color: '#6b7280', label: equipmentType };
   };
 
-  const renderEquipmentItem = ({ item }) => (
-    <Box className="bg-white mb-3 p-4 rounded-2xl shadow-sm border border-gray-100">
-      <HStack space="sm" className="items-center">
-        <Box className="w-12 h-12 rounded-full bg-purple-50 items-center justify-center">
-          <Ionicons name="hardware-chip" size={24} color="#9333ea" />
-        </Box>
-        <VStack className="flex-1" space="xs">
-          <Text size="md" bold className="text-gray-900">
-            {item.type}
-          </Text>
-          <Text size="xs" className="text-gray-500">
-            Osnovna oprema
-          </Text>
-        </VStack>
-        <Box className="bg-purple-100 rounded-full px-4 py-2">
-          <Text size="sm" bold className="text-purple-700">
-            ×{item.quantity || 0}
-          </Text>
-        </Box>
-      </HStack>
-    </Box>
-  );
+  // Extract unique types with "Sve" option
+  const types = useMemo(() => {
+    const uniqueTypes = [...new Set(equipment.map(item => item.type))].sort();
+    return ['Sve', ...uniqueTypes];
+  }, [equipment]);
+
+  const stats = useMemo(() => {
+    const byType = {};
+    equipment.forEach(item => {
+      const type = item.type;
+      if (!byType[type]) {
+        byType[type] = { count: 0, quantity: 0 };
+      }
+      byType[type].count += 1;
+      byType[type].quantity += item.quantity || 0;
+    });
+
+    return {
+      total: equipment.length,
+      totalQuantity: equipment.reduce((sum, e) => sum + (e.quantity || 0), 0),
+      byType
+    };
+  }, [equipment]);
+
+  const filteredEquipment = useMemo(() => {
+    return equipment.filter(item => {
+      const matchesType = typeFilter === 'Sve' || item.type === typeFilter;
+      const matchesSearch = searchTerm === '' ||
+        item.type?.toLowerCase().includes(searchTerm.toLowerCase());
+      return matchesType && matchesSearch;
+    });
+  }, [equipment, typeFilter, searchTerm]);
+
+  const renderEquipmentItem = ({ item }) => {
+    const config = getCategoryConfig(item.type);
+
+    return (
+      <View style={{
+        backgroundColor: '#ffffff',
+        marginHorizontal: 20,
+        marginBottom: 12,
+        padding: 16,
+        borderRadius: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 8,
+        elevation: 2,
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          {/* Left: Icon + Info */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+            <View style={{
+              width: 48,
+              height: 48,
+              borderRadius: 12,
+              backgroundColor: `${config.color}15`,
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 12,
+            }}>
+              <Ionicons name={config.icon} size={24} color={config.color} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{
+                fontSize: 16,
+                fontWeight: '600',
+                color: '#111827',
+                marginBottom: 4,
+              }}>
+                {item.type}
+              </Text>
+              <View style={{
+                backgroundColor: `${config.color}15`,
+                paddingHorizontal: 8,
+                paddingVertical: 3,
+                borderRadius: 6,
+                alignSelf: 'flex-start',
+              }}>
+                <Text style={{
+                  fontSize: 11,
+                  fontWeight: '600',
+                  color: config.color,
+                  textTransform: 'uppercase',
+                }}>
+                  {config.label}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Right: Quantity Badge */}
+          <View style={{
+            backgroundColor: config.color,
+            paddingHorizontal: 12,
+            paddingVertical: 6,
+            borderRadius: 12,
+            minWidth: 50,
+            alignItems: 'center',
+          }}>
+            <Text style={{
+              fontSize: 16,
+              fontWeight: '700',
+              color: '#ffffff',
+            }}>
+              ×{item.quantity || 0}
+            </Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb' }}>
+        <ActivityIndicator size="large" color="#9333ea" />
+        <Text style={{ marginTop: 12, fontSize: 14, color: '#6b7280' }}>Učitavanje...</Text>
+      </View>
+    );
+  }
 
   return (
-    <Box className="flex-1 bg-gray-50">
+    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
       {/* Header - Material Design 3 */}
-      <HStack className="bg-white px-4 py-3 border-b border-gray-100 justify-between items-center" style={{ paddingTop: insets.top + 12 }}>
-        <HStack space="sm" className="items-center">
-          <Box className="w-10 h-10 rounded-full bg-purple-50 items-center justify-center">
-            <Ionicons name="hardware-chip" size={20} color="#9333ea" />
-          </Box>
-          <Heading size="lg" className="text-gray-900">Osnovna Oprema</Heading>
-        </HStack>
+      <View style={{
+        backgroundColor: '#ffffff',
+        paddingTop: insets.top + 12,
+        paddingBottom: 16,
+        paddingHorizontal: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f3f4f6',
+      }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              backgroundColor: '#faf5ff',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 12,
+            }}>
+              <Ionicons name="hardware-chip" size={24} color="#9333ea" />
+            </View>
+            <View>
+              <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827' }}>
+                Osnovna Oprema
+              </Text>
+              <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
+                Inventar tehničara
+              </Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={() => setShowSearchModal(true)}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              backgroundColor: '#dbeafe',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="search" size={22} color="#2563eb" />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Filter Pills */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 16 }}
+        style={{ flexGrow: 0, flexShrink: 0 }}
+      >
+        {/* All */}
         <Pressable
-          onPress={() => setShowFilters(true)}
-          style={{ minHeight: 44, minWidth: 44 }}
-          className="bg-blue-50 rounded-xl items-center justify-center active:bg-blue-100"
+          onPress={() => setTypeFilter('Sve')}
+          style={{
+            backgroundColor: typeFilter === 'Sve' ? '#3b82f6' : '#ffffff',
+            paddingHorizontal: 18,
+            paddingVertical: 14,
+            borderRadius: 20,
+            borderWidth: 2,
+            borderColor: typeFilter === 'Sve' ? '#3b82f6' : '#e5e7eb',
+            marginRight: 10,
+            minWidth: 110,
+            height: 70,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
-          <Ionicons name="search-outline" size={22} color="#2563eb" />
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <Ionicons
+              name="albums-outline"
+              size={18}
+              color={typeFilter === 'Sve' ? '#ffffff' : '#3b82f6'}
+            />
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '700',
+              color: typeFilter === 'Sve' ? '#ffffff' : '#111827',
+              marginLeft: 6
+            }}>
+              {stats.total}
+            </Text>
+          </View>
+          <Text style={{
+            fontSize: 13,
+            fontWeight: '600',
+            color: typeFilter === 'Sve' ? '#ffffff' : '#6b7280'
+          }}>
+            Svi
+          </Text>
         </Pressable>
-      </HStack>
 
-      {/* Stats Cards - Material Design 3 */}
-      <Box className="px-4 py-4 bg-white mb-2">
-        <HStack space="sm">
-          <Box className="flex-1 bg-blue-50 p-4 rounded-2xl border border-blue-100">
-            <VStack space="xs">
-              <HStack space="xs" className="items-center mb-1">
-                <Box className="w-6 h-6 rounded-full bg-blue-100 items-center justify-center">
-                  <Ionicons name="layers" size={14} color="#2563eb" />
-                </Box>
-              </HStack>
-              <Text size="2xl" bold className="text-blue-700">{stats.total}</Text>
-              <Text size="xs" className="text-blue-600 uppercase tracking-wide">Tipova</Text>
-            </VStack>
-          </Box>
-          <Box className="flex-1 bg-green-50 p-4 rounded-2xl border border-green-100">
-            <VStack space="xs">
-              <HStack space="xs" className="items-center mb-1">
-                <Box className="w-6 h-6 rounded-full bg-green-100 items-center justify-center">
-                  <Ionicons name="checkmark-circle" size={14} color="#059669" />
-                </Box>
-              </HStack>
-              <Text size="2xl" bold className="text-green-700">{stats.totalQuantity}</Text>
-              <Text size="xs" className="text-green-600 uppercase tracking-wide">Ukupno</Text>
-            </VStack>
-          </Box>
-          {Object.entries(stats.byType).slice(0, 1).map(([type, data]) => (
-            <Box key={type} className="flex-1 bg-purple-50 p-4 rounded-2xl border border-purple-100">
-              <VStack space="xs">
-                <HStack space="xs" className="items-center mb-1">
-                  <Box className="w-6 h-6 rounded-full bg-purple-100 items-center justify-center">
-                    <Ionicons name="cube" size={14} color="#9333ea" />
-                  </Box>
-                </HStack>
-                <Text size="2xl" bold className="text-purple-700">{data.quantity}</Text>
-                <Text size="xs" className="text-purple-600 uppercase tracking-wide" numberOfLines={1}>{type}</Text>
-              </VStack>
-            </Box>
-          ))}
-        </HStack>
-      </Box>
+        {/* Category Pills */}
+        {types.filter(t => t !== 'Sve').map((type, index) => {
+          const config = getCategoryConfig(type);
+          const count = stats.byType[type]?.count || 0;
+          const isActive = typeFilter === type;
 
+          return (
+            <Pressable
+              key={type}
+              onPress={() => setTypeFilter(type)}
+              style={{
+                backgroundColor: isActive ? config.color : '#ffffff',
+                paddingHorizontal: 18,
+                paddingVertical: 14,
+                borderRadius: 20,
+                borderWidth: 2,
+                borderColor: isActive ? config.color : '#e5e7eb',
+                marginRight: index < types.filter(t => t !== 'Sve').length - 1 ? 10 : 0,
+                minWidth: 110,
+                height: 70,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                <Ionicons
+                  name={config.icon}
+                  size={18}
+                  color={isActive ? '#ffffff' : config.color}
+                />
+                <Text style={{
+                  fontSize: 18,
+                  fontWeight: '700',
+                  color: isActive ? '#ffffff' : '#111827',
+                  marginLeft: 6
+                }}>
+                  {count}
+                </Text>
+              </View>
+              <Text style={{
+                fontSize: 13,
+                fontWeight: '600',
+                color: isActive ? '#ffffff' : '#6b7280'
+              }} numberOfLines={1}>
+                {type}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {/* Equipment List */}
       <FlatList
-        data={currentItems}
+        data={filteredEquipment}
         renderItem={renderEquipmentItem}
-        keyExtractor={(item) => item.id || item.type}
-        contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 16) }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={
-          <Box className="flex-1 items-center justify-center p-12">
-            <Box className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-4">
-              <Ionicons name="cube-outline" size={40} color="#9ca3af" />
-            </Box>
-            <Text size="md" bold className="text-gray-700 text-center mb-2">
-              {searchTerm ? 'Nema rezultata' : 'Nema osnovne opreme'}
-            </Text>
-            <Text size="sm" className="text-gray-500 text-center">
-              {searchTerm ? 'Pokušajte sa drugačijom pretragom' : 'Trenutno nemate zadužene osnovne opreme'}
-            </Text>
-          </Box>
+        keyExtractor={(item, index) => item.id || item.type + index}
+        contentContainerStyle={{
+          paddingTop: 12,
+          paddingBottom: Math.max(insets.bottom + 16, 24)
+        }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#9333ea']}
+            tintColor="#9333ea"
+          />
         }
-        ListFooterComponent={
-          filteredEquipment.length > itemsPerPage ? (
-            <Box className="bg-white mx-4 mt-4 p-4 rounded-2xl shadow-sm border border-gray-100">
-              <HStack space="sm" className="justify-between items-center">
-                <Pressable
-                  onPress={() => paginate(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  style={{ minHeight: 44, minWidth: 44 }}
-                  className={`rounded-xl items-center justify-center ${
-                    currentPage === 1 ? 'bg-gray-100' : 'bg-blue-50 active:bg-blue-100'
-                  }`}
-                >
-                  <Ionicons
-                    name="chevron-back"
-                    size={20}
-                    color={currentPage === 1 ? '#9ca3af' : '#2563eb'}
-                  />
-                </Pressable>
-
-                <Box className="flex-1 items-center">
-                  <Text size="sm" bold className="text-gray-700">
-                    Stranica {currentPage} od {totalPages}
-                  </Text>
-                </Box>
-
-                <Pressable
-                  onPress={() => paginate(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                  style={{ minHeight: 44, minWidth: 44 }}
-                  className={`rounded-xl items-center justify-center ${
-                    currentPage === totalPages ? 'bg-gray-100' : 'bg-blue-50 active:bg-blue-100'
-                  }`}
-                >
-                  <Ionicons
-                    name="chevron-forward"
-                    size={20}
-                    color={currentPage === totalPages ? '#9ca3af' : '#2563eb'}
-                  />
-                </Pressable>
-              </HStack>
-            </Box>
-          ) : null
+        ListEmptyComponent={
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 80 }}>
+            <View style={{
+              width: 80,
+              height: 80,
+              borderRadius: 40,
+              backgroundColor: '#f3f4f6',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 16
+            }}>
+              <Ionicons name="cube-outline" size={40} color="#9ca3af" />
+            </View>
+            <Text style={{
+              fontSize: 16,
+              fontWeight: '600',
+              color: '#374151',
+              textAlign: 'center',
+              marginBottom: 8
+            }}>
+              {searchTerm || typeFilter !== 'Sve' ? 'Nema rezultata' : 'Nema osnovne opreme'}
+            </Text>
+            <Text style={{
+              fontSize: 14,
+              color: '#6b7280',
+              textAlign: 'center'
+            }}>
+              {searchTerm || typeFilter !== 'Sve'
+                ? 'Pokušajte sa drugačijom pretragom'
+                : 'Trenutno nemate zadužene osnovne opreme'}
+            </Text>
+          </View>
         }
       />
 
       {/* Search Modal - Material Design 3 */}
-      <Modal visible={showFilters} animationType="slide" transparent onRequestClose={() => setShowFilters(false)}>
-        <Pressable onPress={() => setShowFilters(false)} className="flex-1 bg-black/50 justify-end">
-          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl p-6 max-h-[80%]">
-            <HStack className="justify-between items-center mb-6">
-              <HStack space="sm" className="items-center">
-                <Box className="w-10 h-10 rounded-full bg-blue-50 items-center justify-center">
+      <Modal
+        visible={showSearchModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowSearchModal(false)}
+      >
+        <Pressable
+          onPress={() => setShowSearchModal(false)}
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: '#ffffff',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              padding: 24,
+              maxHeight: '80%'
+            }}
+          >
+            {/* Modal Header */}
+            <View style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 24
+            }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 20,
+                  backgroundColor: '#eff6ff',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginRight: 10
+                }}>
                   <Ionicons name="search" size={20} color="#2563eb" />
-                </Box>
-                <Heading size="lg" className="text-gray-900">Pretraga</Heading>
-              </HStack>
+                </View>
+                <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827' }}>
+                  Pretraga
+                </Text>
+              </View>
               <Pressable
-                onPress={() => setShowFilters(false)}
-                style={{ minHeight: 44, minWidth: 44 }}
-                className="items-center justify-center"
+                onPress={() => setShowSearchModal(false)}
+                style={{
+                  minHeight: 44,
+                  minWidth: 44,
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
               >
                 <Ionicons name="close-circle" size={28} color="#9ca3af" />
               </Pressable>
-            </HStack>
+            </View>
 
-            <VStack space="sm" className="mb-6">
-              <Text size="sm" bold className="text-gray-700">Tip opreme</Text>
-              <Input variant="outline" size="lg" className="bg-gray-50 border-2 border-gray-200">
-                <InputField
+            {/* Search Input */}
+            <View style={{ marginBottom: 24 }}>
+              <Text style={{
+                fontSize: 14,
+                fontWeight: '600',
+                color: '#374151',
+                marginBottom: 8
+              }}>
+                Tip opreme
+              </Text>
+              <View style={{
+                backgroundColor: '#f9fafb',
+                borderWidth: 2,
+                borderColor: '#e5e7eb',
+                borderRadius: 12,
+                paddingHorizontal: 16,
+                paddingVertical: 12
+              }}>
+                <TextInput
                   placeholder="Pretraži po tipu..."
+                  placeholderTextColor="#9ca3af"
                   value={searchTerm}
                   onChangeText={setSearchTerm}
+                  style={{
+                    fontSize: 16,
+                    color: '#111827',
+                    padding: 0
+                  }}
                 />
-              </Input>
-            </VStack>
+              </View>
+            </View>
 
+            {/* Apply Button */}
             <Pressable
-              onPress={() => setShowFilters(false)}
-              className="rounded-xl"
+              onPress={() => setShowSearchModal(false)}
+              style={({ pressed }) => ({
+                backgroundColor: pressed ? '#1d4ed8' : '#2563eb',
+                borderRadius: 12,
+                paddingVertical: 14,
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'center'
+              })}
             >
-              <Box className="bg-blue-600 rounded-xl py-3.5 active:bg-blue-700">
-                <HStack space="sm" className="items-center justify-center">
-                  <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                  <Text size="sm" bold className="text-white">Primeni pretragu</Text>
-                </HStack>
-              </Box>
+              <Ionicons name="checkmark-circle" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+              <Text style={{
+                fontSize: 14,
+                fontWeight: '600',
+                color: '#ffffff'
+              }}>
+                Primeni pretragu
+              </Text>
             </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
-    </Box>
+    </View>
   );
 }

@@ -1,13 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { FlatList, Pressable, RefreshControl, Modal, Alert, Text as RNText, View } from 'react-native';
+import { View, Text, FlatList, Pressable, RefreshControl, Modal, Alert, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNotifications } from '../context/NotificationContext';
-import { VStack } from '../components/ui/vstack';
-import { HStack } from '../components/ui/hstack';
-import { Box } from '../components/ui/box';
-import { Text } from '../components/ui/text';
-import { Heading } from '../components/ui/heading';
 import EquipmentDetailsModal from '../components/EquipmentDetailsModal';
 
 export default function NotificationsScreen({ navigation }) {
@@ -29,6 +24,7 @@ export default function NotificationsScreen({ navigation }) {
   const [selectedEquipmentDetails, setSelectedEquipmentDetails] = useState(null);
   const [modalTitle, setModalTitle] = useState('');
   const [modalType, setModalType] = useState('');
+  const [filter, setFilter] = useState('all'); // 'all', 'unread', 'read'
 
   useEffect(() => {
     fetchNotifications();
@@ -107,6 +103,19 @@ export default function NotificationsScreen({ navigation }) {
     }
   };
 
+  // Filter notifications
+  const filteredNotifications = notifications.filter(notif => {
+    if (filter === 'unread') return !notif.isRead;
+    if (filter === 'read') return notif.isRead;
+    return true; // 'all'
+  });
+
+  const stats = {
+    total: notifications.length,
+    unread: unreadCount,
+    read: notifications.length - unreadCount,
+  };
+
   const renderNotification = ({ item }) => {
     const iconConfig = getNotificationIcon(item.type);
 
@@ -114,148 +123,363 @@ export default function NotificationsScreen({ navigation }) {
       <Pressable
         onPress={() => handleNotificationPress(item)}
         onLongPress={() => handleDeletePress(item)}
+        style={{
+          backgroundColor: item.isRead ? '#ffffff' : '#eff6ff',
+          marginHorizontal: 20,
+          marginBottom: 12,
+          padding: 16,
+          borderRadius: 16,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.05,
+          shadowRadius: 8,
+          elevation: 2,
+          borderWidth: 1,
+          borderColor: item.isRead ? '#f3f4f6' : '#dbeafe',
+        }}
       >
-        <Box
-          className={`mb-3 p-4 rounded-2xl shadow-sm border ${
-            item.isRead ? 'bg-white border-gray-100' : 'bg-blue-50 border-blue-200'
-          }`}
-        >
-          <HStack space="sm">
-            {/* Icon */}
-            <Box
-              className="w-12 h-12 rounded-full items-center justify-center"
-              style={{ backgroundColor: iconConfig.bgColor }}
-            >
-              <Ionicons name={iconConfig.name} size={22} color={iconConfig.color} />
-            </Box>
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+          {/* Icon */}
+          <View style={{
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: iconConfig.bgColor,
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginRight: 12,
+          }}>
+            <Ionicons name={iconConfig.name} size={22} color={iconConfig.color} />
+          </View>
 
-            {/* Content */}
-            <Box className="flex-1">
-              <VStack space="xs">
-                <HStack className="justify-between items-start">
-                  <Text size="sm" bold className={item.isRead ? 'text-gray-900' : 'text-blue-900'}>
-                    {item.title}
-                  </Text>
-                  {!item.isRead && (
-                    <Box className="w-2.5 h-2.5 rounded-full bg-blue-600" />
-                  )}
-                </HStack>
+          {/* Content */}
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+              <Text style={{
+                fontSize: 15,
+                fontWeight: '600',
+                color: item.isRead ? '#111827' : '#1e40af',
+                flex: 1,
+                marginRight: 8,
+              }}>
+                {item.title}
+              </Text>
+              {!item.isRead && (
+                <View style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 5,
+                  backgroundColor: '#2563eb',
+                }} />
+              )}
+            </View>
 
-                <Text size="sm" className={item.isRead ? 'text-gray-600' : 'text-blue-800'}>
-                  {item.message}
-                </Text>
+            <Text style={{
+              fontSize: 14,
+              color: item.isRead ? '#6b7280' : '#3b82f6',
+              marginBottom: 8,
+              lineHeight: 20,
+            }}>
+              {item.message}
+            </Text>
 
-                <HStack space="xs" className="items-center mt-1">
-                  <Ionicons name="time-outline" size={14} color="#9ca3af" />
-                  <Text size="xs" className="text-gray-500">
-                    {formatDate(item.createdAt)}
-                  </Text>
-                </HStack>
-              </VStack>
-            </Box>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="time-outline" size={14} color="#9ca3af" />
+              <Text style={{
+                fontSize: 12,
+                color: '#9ca3af',
+                marginLeft: 4,
+              }}>
+                {formatDate(item.createdAt)}
+              </Text>
+            </View>
+          </View>
 
-            {/* Delete Button */}
-            <Pressable
-              onPress={() => handleDeletePress(item)}
-              style={{ minHeight: 44, minWidth: 44 }}
-              className="items-center justify-center"
-            >
-              <Ionicons name="trash-outline" size={18} color="#ef4444" />
-            </Pressable>
-          </HStack>
-        </Box>
+          {/* Delete Button */}
+          <Pressable
+            onPress={() => handleDeletePress(item)}
+            style={{
+              minHeight: 44,
+              minWidth: 44,
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: 8,
+            }}
+          >
+            <Ionicons name="trash-outline" size={20} color="#ef4444" />
+          </Pressable>
+        </View>
       </Pressable>
     );
   };
 
   return (
-    <Box className="flex-1 bg-gray-50">
+    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
       {/* Header - Material Design 3 */}
-      <HStack
-        className="bg-white px-4 py-3 border-b border-gray-100 justify-between items-center"
-        style={{ paddingTop: insets.top + 12 }}
-      >
-        <HStack space="sm" className="items-center">
-          <Box className="w-10 h-10 rounded-full bg-purple-50 items-center justify-center">
-            <Ionicons name="notifications" size={20} color="#9333ea" />
-          </Box>
-          <Heading size="lg" className="text-gray-900">Notifikacije</Heading>
-        </HStack>
-        {unreadCount > 0 && (
-          <Box className="bg-purple-600 rounded-full px-3 py-1">
-            <Text size="xs" bold className="text-white">
-              {unreadCount}
-            </Text>
-          </Box>
-        )}
-      </HStack>
+      <View style={{
+        backgroundColor: '#ffffff',
+        paddingTop: insets.top + 12,
+        paddingBottom: 16,
+        paddingHorizontal: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f3f4f6',
+      }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              backgroundColor: '#faf5ff',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 12,
+            }}>
+              <Ionicons name="notifications" size={24} color="#9333ea" />
+            </View>
+            <View>
+              <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827' }}>
+                Notifikacije
+              </Text>
+              <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
+                Radni nalozi i oprema
+              </Text>
+            </View>
+          </View>
+          {unreadCount > 0 && (
+            <View style={{
+              backgroundColor: '#9333ea',
+              borderRadius: 20,
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              minWidth: 40,
+              alignItems: 'center',
+            }}>
+              <Text style={{
+                fontSize: 14,
+                fontWeight: '700',
+                color: '#ffffff',
+              }}>
+                {unreadCount}
+              </Text>
+            </View>
+          )}
+        </View>
+      </View>
 
-      {/* Stats Card */}
-      {notifications.length > 0 && (
-        <Box className="px-4 py-4 bg-white mb-2">
-          <HStack space="sm">
-            <Box className="flex-1 bg-purple-50 p-4 rounded-2xl border border-purple-100">
-              <VStack space="xs">
-                <HStack space="xs" className="items-center mb-1">
-                  <Box className="w-6 h-6 rounded-full bg-purple-100 items-center justify-center">
-                    <Ionicons name="notifications" size={14} color="#9333ea" />
-                  </Box>
-                </HStack>
-                <Text size="2xl" bold className="text-purple-700">{notifications.length}</Text>
-                <Text size="xs" className="text-purple-600 uppercase tracking-wide">Ukupno</Text>
-              </VStack>
-            </Box>
-            <Box className="flex-1 bg-blue-50 p-4 rounded-2xl border border-blue-100">
-              <VStack space="xs">
-                <HStack space="xs" className="items-center mb-1">
-                  <Box className="w-6 h-6 rounded-full bg-blue-100 items-center justify-center">
-                    <Ionicons name="mail-unread" size={14} color="#2563eb" />
-                  </Box>
-                </HStack>
-                <Text size="2xl" bold className="text-blue-700">{unreadCount}</Text>
-                <Text size="xs" className="text-blue-600 uppercase tracking-wide">Nepročitano</Text>
-              </VStack>
-            </Box>
-          </HStack>
-        </Box>
-      )}
+      {/* Filter Pills */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 16 }}
+        style={{ flexGrow: 0, flexShrink: 0 }}
+      >
+        {/* All */}
+        <Pressable
+          onPress={() => setFilter('all')}
+          style={{
+            backgroundColor: filter === 'all' ? '#3b82f6' : '#ffffff',
+            paddingHorizontal: 18,
+            paddingVertical: 14,
+            borderRadius: 20,
+            borderWidth: 2,
+            borderColor: filter === 'all' ? '#3b82f6' : '#e5e7eb',
+            marginRight: 10,
+            minWidth: 110,
+            height: 70,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <Ionicons
+              name="albums-outline"
+              size={18}
+              color={filter === 'all' ? '#ffffff' : '#3b82f6'}
+            />
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '700',
+              color: filter === 'all' ? '#ffffff' : '#111827',
+              marginLeft: 6
+            }}>
+              {stats.total}
+            </Text>
+          </View>
+          <Text style={{
+            fontSize: 13,
+            fontWeight: '600',
+            color: filter === 'all' ? '#ffffff' : '#6b7280'
+          }}>
+            Sve
+          </Text>
+        </Pressable>
+
+        {/* Unread */}
+        <Pressable
+          onPress={() => setFilter('unread')}
+          style={{
+            backgroundColor: filter === 'unread' ? '#9333ea' : '#ffffff',
+            paddingHorizontal: 18,
+            paddingVertical: 14,
+            borderRadius: 20,
+            borderWidth: 2,
+            borderColor: filter === 'unread' ? '#9333ea' : '#e5e7eb',
+            marginRight: 10,
+            minWidth: 110,
+            height: 70,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <Ionicons
+              name="mail-unread"
+              size={18}
+              color={filter === 'unread' ? '#ffffff' : '#9333ea'}
+            />
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '700',
+              color: filter === 'unread' ? '#ffffff' : '#111827',
+              marginLeft: 6
+            }}>
+              {stats.unread}
+            </Text>
+          </View>
+          <Text style={{
+            fontSize: 13,
+            fontWeight: '600',
+            color: filter === 'unread' ? '#ffffff' : '#6b7280'
+          }}>
+            Nepročitano
+          </Text>
+        </Pressable>
+
+        {/* Read */}
+        <Pressable
+          onPress={() => setFilter('read')}
+          style={{
+            backgroundColor: filter === 'read' ? '#059669' : '#ffffff',
+            paddingHorizontal: 18,
+            paddingVertical: 14,
+            borderRadius: 20,
+            borderWidth: 2,
+            borderColor: filter === 'read' ? '#059669' : '#e5e7eb',
+            minWidth: 110,
+            height: 70,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <Ionicons
+              name="checkmark-circle"
+              size={18}
+              color={filter === 'read' ? '#ffffff' : '#059669'}
+            />
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '700',
+              color: filter === 'read' ? '#ffffff' : '#111827',
+              marginLeft: 6
+            }}>
+              {stats.read}
+            </Text>
+          </View>
+          <Text style={{
+            fontSize: 13,
+            fontWeight: '600',
+            color: filter === 'read' ? '#ffffff' : '#6b7280'
+          }}>
+            Pročitano
+          </Text>
+        </Pressable>
+      </ScrollView>
 
       {/* Info Banner */}
-      <Box className="mx-4 mb-3 bg-purple-50 border border-purple-200 rounded-2xl p-4">
-        <HStack space="sm" className="items-center">
-          <Box className="w-8 h-8 rounded-full bg-purple-100 items-center justify-center">
-            <Ionicons name="information-circle" size={18} color="#9333ea" />
-          </Box>
-          <Box className="flex-1">
-            <Text size="xs" className="text-purple-800">
+      {notifications.length > 0 && (
+        <View style={{
+          marginHorizontal: 20,
+          marginBottom: 12,
+          backgroundColor: '#faf5ff',
+          borderWidth: 1,
+          borderColor: '#e9d5ff',
+          borderRadius: 12,
+          padding: 12,
+        }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{
+              width: 32,
+              height: 32,
+              borderRadius: 16,
+              backgroundColor: '#f3e8ff',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 10,
+            }}>
+              <Ionicons name="information-circle" size={18} color="#9333ea" />
+            </View>
+            <Text style={{
+              flex: 1,
+              fontSize: 12,
+              color: '#7c3aed',
+            }}>
               Pritisnite i držite notifikaciju da biste je obrisali
             </Text>
-          </Box>
-        </HStack>
-      </Box>
+          </View>
+        </View>
+      )}
 
       {/* Notifications List */}
       <FlatList
-        data={notifications}
+        data={filteredNotifications}
         renderItem={renderNotification}
         keyExtractor={(item) => item._id}
         contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingBottom: Math.max(insets.bottom, 16),
+          paddingTop: 12,
+          paddingBottom: Math.max(insets.bottom + 16, 24),
         }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#9333ea']}
+            tintColor="#9333ea"
+          />
+        }
         ListEmptyComponent={
-          <Box className="flex-1 items-center justify-center p-12">
-            <Box className="w-20 h-20 rounded-full bg-purple-100 items-center justify-center mb-4">
-              <Ionicons name="notifications-outline" size={40} color="#9333ea" />
-            </Box>
-            <Text size="md" bold className="text-gray-700 text-center mb-2">
-              Nemate notifikacija
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 80 }}>
+            <View style={{
+              width: 80,
+              height: 80,
+              borderRadius: 40,
+              backgroundColor: '#f3f4f6',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 16,
+            }}>
+              <Ionicons name="notifications-outline" size={40} color="#9ca3af" />
+            </View>
+            <Text style={{
+              fontSize: 16,
+              fontWeight: '600',
+              color: '#374151',
+              textAlign: 'center',
+              marginBottom: 8,
+            }}>
+              {filter === 'all' ? 'Nemate notifikacija' :
+               filter === 'unread' ? 'Nema nepročitanih notifikacija' :
+               'Nema pročitanih notifikacija'}
             </Text>
-            <Text size="sm" className="text-gray-500 text-center">
+            <Text style={{
+              fontSize: 14,
+              color: '#6b7280',
+              textAlign: 'center',
+            }}>
               Notifikacije o radnim nalozima i opremi će se prikazati ovde
             </Text>
-          </Box>
+          </View>
         }
       />
 
@@ -284,12 +508,12 @@ export default function NotificationsScreen({ navigation }) {
             </View>
 
             {/* Title */}
-            <RNText style={{ fontSize: 18, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 8 }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 8 }}>
               Obriši notifikaciju?
-            </RNText>
-            <RNText style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 24 }}>
+            </Text>
+            <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 24 }}>
               Ova akcija se ne može poništiti
-            </RNText>
+            </Text>
 
             {/* Buttons */}
             <View style={{ width: '100%' }}>
@@ -305,9 +529,9 @@ export default function NotificationsScreen({ navigation }) {
                   width: '100%',
                 }}
               >
-                <RNText style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 16 }}>
+                <Text style={{ color: '#ffffff', fontWeight: 'bold', fontSize: 16 }}>
                   Obriši
-                </RNText>
+                </Text>
               </Pressable>
 
               <Pressable
@@ -321,14 +545,14 @@ export default function NotificationsScreen({ navigation }) {
                   width: '100%',
                 }}
               >
-                <RNText style={{ color: '#111827', fontWeight: 'bold', fontSize: 16 }}>
+                <Text style={{ color: '#111827', fontWeight: 'bold', fontSize: 16 }}>
                   Otkaži
-                </RNText>
+                </Text>
               </Pressable>
             </View>
           </View>
         </View>
       </Modal>
-    </Box>
+    </View>
   );
 }

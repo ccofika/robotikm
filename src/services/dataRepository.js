@@ -506,8 +506,17 @@ class DataRepository {
           await offlineStorage.saveRemovedEquipment(workOrderId, response.data);
 
           console.log('[DataRepository] Equipment removed by serial and refreshed from server');
-          return true;
+          return { success: true };
         } catch (error) {
+          // Proveri da li je oprema već uklonjena
+          if (error.response && error.response.status === 400) {
+            const errorMessage = error.response.data?.error || '';
+            if (errorMessage.includes('već uklonjena')) {
+              console.log('[DataRepository] Equipment already removed - not an error');
+              return { success: false, alreadyRemoved: true, message: errorMessage };
+            }
+          }
+
           console.error('[DataRepository] Error removing equipment by serial online:', error);
           throw error;
         }
@@ -515,6 +524,21 @@ class DataRepository {
 
       // Ako je offline, sačuvaj lokalno i dodaj u sync queue
       const removedEquipment = await offlineStorage.getRemovedEquipment(workOrderId);
+
+      // Proveri da li oprema već postoji u removedEquipment (case-insensitive)
+      const normalizedSerial = serialNumber.toLowerCase();
+      const alreadyRemoved = removedEquipment.some(
+        eq => eq.serialNumber.toLowerCase() === normalizedSerial
+      );
+
+      if (alreadyRemoved) {
+        console.log('[DataRepository] Equipment already removed (offline check)');
+        return {
+          success: false,
+          alreadyRemoved: true,
+          message: 'Ova oprema je već uklonjena u ovom radnom nalogu'
+        };
+      }
 
       const newRemovedEquipment = {
         id: `temp_removed_${Date.now()}`,
@@ -545,7 +569,7 @@ class DataRepository {
       });
 
       console.log('[DataRepository] Equipment removal by serial queued for sync (offline)');
-      return true;
+      return { success: true };
     } catch (error) {
       console.error('[DataRepository] Error removing equipment by serial:', error);
       throw error;
@@ -643,9 +667,24 @@ class DataRepository {
   /**
    * Briše sliku sa radnog naloga
    */
-  async deleteWorkOrderImage(workOrderId, imageUrl) {
+  async deleteWorkOrderImage(technicianId, workOrderId, imageUrl) {
     try {
-      // Dodaj u sync queue
+      // 1. Ažuriraj lokalni cache odmah - ukloni sliku iz images array-a
+      const workOrders = await offlineStorage.getWorkOrders(technicianId);
+      const workOrder = workOrders.find(wo => wo._id === workOrderId);
+
+      if (workOrder && workOrder.images) {
+        // Filtriraj sliku iz images array-a
+        workOrder.images = workOrder.images.filter(img => {
+          const imgUrl = typeof img === 'string' ? img : (img.url || img.uri);
+          return imgUrl !== imageUrl;
+        });
+
+        // Sačuvaj ažurirani radni nalog u cache
+        await offlineStorage.saveWorkOrders(technicianId, workOrders);
+      }
+
+      // 2. Dodaj u sync queue za server sync
       await syncQueue.addToQueue({
         type: 'DELETE_IMAGE',
         entity: 'workOrderImages',
@@ -657,6 +696,7 @@ class DataRepository {
         }
       });
 
+      // 3. Procesuj queue ako je online
       if (networkMonitor.getIsOnline()) {
         syncQueue.processQueue();
       }

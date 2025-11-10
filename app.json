@@ -15,7 +15,16 @@
     "android": {
       "package": "com.robotik.mobile",
       "versionCode": 2,
-      "useNextNotificationsApi": true
+      "useNextNotificationsApi": true,
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "WAKE_LOCK"
+      ],
+      "adaptiveIcon": {
+        "backgroundColor": "#9333ea"
+      }
     },
     "plugins": [
       [

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
-import { FlatList, Pressable, RefreshControl, Modal, Alert, Linking, ScrollView } from 'react-native';
+import { FlatList, Pressable, RefreshControl, Modal, Alert, Linking, ScrollView, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
@@ -14,14 +14,14 @@ import { Heading } from '../components/ui/heading';
 import { Input, InputField } from '../components/ui/input';
 
 export default function WorkOrdersScreen({ navigation }) {
-  const { user } = useContext(AuthContext);
+  const { user, logout } = useContext(AuthContext);
   const { isOnline, isSyncing } = useOffline();
   const insets = useSafeAreaInsets();
   const [workOrders, setWorkOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('new');
   const [showFilters, setShowFilters] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
 
@@ -32,7 +32,6 @@ export default function WorkOrdersScreen({ navigation }) {
   const fetchWorkOrders = async (forceRefresh = false) => {
     if (!user?._id) return;
     try {
-      // Koristi dataRepository umesto direktno workOrdersAPI
       const orders = await dataRepository.getWorkOrders(user._id, forceRefresh);
       setWorkOrders(orders);
     } catch (error) {
@@ -40,7 +39,6 @@ export default function WorkOrdersScreen({ navigation }) {
       if (isOnline) {
         Alert.alert('Greška', 'Neuspešno učitavanje radnih naloga');
       }
-      // Ako je offline, podaci su možda i dalje dostupni iz cache-a
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -49,7 +47,6 @@ export default function WorkOrdersScreen({ navigation }) {
 
   const onRefresh = () => {
     setRefreshing(true);
-    // Force refresh samo ako je online
     fetchWorkOrders(isOnline);
   };
 
@@ -69,16 +66,16 @@ export default function WorkOrdersScreen({ navigation }) {
   };
 
   const getDisplayStatus = (order) => {
-    if (order.status === 'zavrsen') return { text: 'Završen', color: '#16a34a', bgColor: '#d1fae5' };
-    if (order.status === 'odlozen') return { text: 'Odložen', color: '#dc2626', bgColor: '#fee2e2' };
-    if (order.status === 'otkazan') return { text: 'Otkazan', color: '#64748b', bgColor: '#f1f5f9' };
+    if (order.status === 'zavrsen') return { text: 'Završen', color: '#059669', bgColor: '#d1fae5', icon: 'checkmark-circle' };
+    if (order.status === 'odlozen') return { text: 'Odložen', color: '#f59e0b', bgColor: '#fef3c7', icon: 'pause-circle' };
+    if (order.status === 'otkazan') return { text: 'Otkazan', color: '#64748b', bgColor: '#e2e8f0', icon: 'close-circle' };
     if (order.status === 'nezavrsen') {
       if (isWorkOrderNew(order)) {
-        return { text: 'Nov', color: '#9333ea', bgColor: '#f3e8ff' };
+        return { text: 'Nov', color: '#8b5cf6', bgColor: '#ede9fe', icon: 'star' };
       }
-      return { text: 'Nezavršen', color: '#ca8a04', bgColor: '#fef3c7' };
+      return { text: 'U toku', color: '#3b82f6', bgColor: '#dbeafe', icon: 'play-circle' };
     }
-    return { text: 'Nezavršen', color: '#ca8a04', bgColor: '#fef3c7' };
+    return { text: 'U toku', color: '#3b82f6', bgColor: '#dbeafe', icon: 'play-circle' };
   };
 
   const filteredWorkOrders = useMemo(() => {
@@ -87,9 +84,19 @@ export default function WorkOrdersScreen({ navigation }) {
         order.municipality?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         order.address?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         order.type?.toLowerCase().includes(searchTerm.toLowerCase());
-      const statusMatch = statusFilter === '' || order.status === statusFilter;
-      const defaultHideCompleted = statusFilter === '' && searchTerm === '' ? order.status !== 'zavrsen' : true;
-      return searchMatch && statusMatch && defaultHideCompleted;
+
+      let statusMatch = true;
+      if (statusFilter === 'all') {
+        statusMatch = order.status !== 'zavrsen';
+      } else if (statusFilter === 'new') {
+        statusMatch = order.status === 'nezavrsen' && isWorkOrderNew(order);
+      } else if (statusFilter === 'nezavrsen') {
+        statusMatch = order.status === 'nezavrsen' && !isWorkOrderNew(order);
+      } else if (statusFilter !== '') {
+        statusMatch = order.status === statusFilter;
+      }
+
+      return searchMatch && statusMatch;
     });
   }, [workOrders, searchTerm, statusFilter]);
 
@@ -106,18 +113,21 @@ export default function WorkOrdersScreen({ navigation }) {
   }, [filteredWorkOrders]);
 
   const stats = useMemo(() => {
-    const total = workOrders.length;
+    const allTotal = workOrders.length;
     const completed = workOrders.filter(o => o.status === 'zavrsen').length;
     const pending = workOrders.filter(o => o.status === 'nezavrsen' && !isWorkOrderNew(o)).length;
     const newOrders = workOrders.filter(o => o.status === 'nezavrsen' && isWorkOrderNew(o)).length;
     const postponed = workOrders.filter(o => o.status === 'odlozen').length;
+    const cancelled = workOrders.filter(o => o.status === 'otkazan').length;
+    const total = allTotal - completed;
     return {
       total,
       completed,
       pending,
       newOrders,
       postponed,
-      completionRate: total > 0 ? Math.round((completed / total) * 100) : 0
+      cancelled,
+      completionRate: allTotal > 0 ? Math.round((completed / allTotal) * 100) : 0
     };
   }, [workOrders]);
 
@@ -125,245 +135,402 @@ export default function WorkOrdersScreen({ navigation }) {
     Linking.openURL(`tel:${phoneNumber}`);
   };
 
+  const handleLogout = () => {
+    Alert.alert(
+      'Odjava',
+      'Da li ste sigurni da želite da se odjavite?',
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        { text: 'Odjavi se', style: 'destructive', onPress: () => logout() }
+      ]
+    );
+  };
+
   const renderWorkOrder = ({ item }) => {
     const displayStatus = getDisplayStatus(item);
     return (
-      <Pressable onPress={() => navigation.navigate('WorkOrderDetail', { orderId: item._id })}>
-        <Box className="bg-white mb-2.5 p-3 rounded-xl shadow-sm border-l-4" style={{ borderLeftColor: displayStatus.color }}>
-          <VStack space="xs">
-            <HStack className="justify-between items-center">
-              <Box className="px-2.5 py-1 rounded-full" style={{ backgroundColor: displayStatus.bgColor }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', color: displayStatus.color }}>
+      <Pressable
+        onPress={() => navigation.navigate('WorkOrderDetail', { orderId: item._id })}
+        style={{ marginBottom: 12 }}
+      >
+        <View style={{
+          backgroundColor: '#ffffff',
+          borderRadius: 16,
+          overflow: 'hidden',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+          elevation: 3,
+        }}>
+          {/* Status Accent Bar */}
+          <View style={{ height: 4, backgroundColor: displayStatus.color }} />
+
+          <View style={{ padding: 16 }}>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 6 }}>
+                  {item.municipality}
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="location-sharp" size={14} color="#6b7280" />
+                  <Text style={{ fontSize: 14, color: '#6b7280', marginLeft: 6, fontWeight: '500' }}>
+                    {item.address}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Status Badge */}
+              <View style={{
+                backgroundColor: displayStatus.bgColor,
+                paddingHorizontal: 12,
+                paddingVertical: 6,
+                borderRadius: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+              }}>
+                <Ionicons name={displayStatus.icon} size={14} color={displayStatus.color} />
+                <Text style={{ fontSize: 12, fontWeight: '700', color: displayStatus.color, marginLeft: 4 }}>
                   {displayStatus.text}
                 </Text>
-              </Box>
-              <HStack space="xs" className="items-center">
-                <Ionicons name="calendar-outline" size={12} color="#6b7280" />
-                <Text style={{ fontSize: 12, color: '#4b5563' }}>
-                  {new Date(item.date).toLocaleDateString('sr-RS', { day: '2-digit', month: '2-digit' })}
-                  {item.time && ` • ${item.time}`}
+              </View>
+            </View>
+
+            {/* Metadata */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 16 }}>
+                <Ionicons name="calendar-outline" size={14} color="#9ca3af" />
+                <Text style={{ fontSize: 13, color: '#6b7280', marginLeft: 4, fontWeight: '500' }}>
+                  {new Date(item.date).toLocaleDateString('sr-RS', { day: 'numeric', month: 'short' })}
                 </Text>
-              </HStack>
-            </HStack>
-
-            <VStack space="xs">
-              <Text style={{ fontSize: 15, fontWeight: '700', color: '#111827' }}>{item.municipality}</Text>
-              <HStack space="xs" className="items-center">
-                <Ionicons name="location-outline" size={13} color="#6b7280" />
-                <Text style={{ fontSize: 12, color: '#4b5563' }}>{item.address} • {item.type}</Text>
-              </HStack>
-
-              {item.userPhone && (
-                <Pressable
-                  onPress={() => makePhoneCall(item.userPhone)}
-                  className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mt-0.5 active:bg-blue-100"
-                >
-                  <HStack space="sm" className="items-center">
-                    <Box className="w-6 h-6 rounded-full bg-blue-100 items-center justify-center">
-                      <Ionicons name="call" size={13} color="#2563eb" />
-                    </Box>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#1d4ed8' }}>{item.userPhone}</Text>
-                  </HStack>
-                </Pressable>
+              </View>
+              {item.time && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 16 }}>
+                  <Ionicons name="time-outline" size={14} color="#9ca3af" />
+                  <Text style={{ fontSize: 13, color: '#6b7280', marginLeft: 4, fontWeight: '500' }}>
+                    {item.time}
+                  </Text>
+                </View>
               )}
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="construct-outline" size={14} color="#9ca3af" />
+                <Text style={{ fontSize: 13, color: '#6b7280', marginLeft: 4, fontWeight: '500' }}>
+                  {item.type}
+                </Text>
+              </View>
+            </View>
 
-              {item.adminComment && (
-                <Box className="bg-red-50 border border-red-200 rounded-lg p-2.5 mt-0.5">
-                  <HStack space="xs" className="items-center mb-0.5">
-                    <Box className="w-4 h-4 rounded-full bg-red-100 items-center justify-center">
-                      <Ionicons name="alert-circle" size={10} color="#dc2626" />
-                    </Box>
-                    <Text style={{ fontSize: 10, fontWeight: '700', textTransform: 'uppercase', color: '#b91c1c' }}>Razlog vraćanja:</Text>
-                  </HStack>
-                  <Text style={{ fontSize: 12, color: '#dc2626' }}>{item.adminComment}</Text>
-                </Box>
-              )}
-            </VStack>
-          </VStack>
-        </Box>
+            {/* Details */}
+            {item.details && (
+              <View style={{
+                backgroundColor: '#f9fafb',
+                borderRadius: 12,
+                padding: 12,
+                marginBottom: 12,
+                borderWidth: 1,
+                borderColor: '#e5e7eb'
+              }}>
+                <Text style={{ fontSize: 13, color: '#374151', lineHeight: 20 }} numberOfLines={2}>
+                  {item.details}
+                </Text>
+              </View>
+            )}
+
+            {/* Phone Button */}
+            {item.userPhone && (
+              <Pressable
+                onPress={() => makePhoneCall(item.userPhone)}
+                style={{
+                  backgroundColor: '#2563eb',
+                  borderRadius: 12,
+                  paddingVertical: 12,
+                  paddingHorizontal: 16,
+                  marginBottom: item.adminComment ? 12 : 0,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="call" size={18} color="#ffffff" />
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#ffffff', marginLeft: 8 }}>
+                    {item.userPhone}
+                  </Text>
+                </View>
+              </Pressable>
+            )}
+
+            {/* Admin Comment */}
+            {item.adminComment && (
+              <View style={{
+                backgroundColor: '#fffbeb',
+                borderRadius: 12,
+                padding: 12,
+                flexDirection: 'row',
+                borderWidth: 1,
+                borderColor: '#fde68a'
+              }}>
+                <Ionicons name="alert-circle" size={16} color="#f59e0b" style={{ marginTop: 2, marginRight: 8 }} />
+                <Text style={{ fontSize: 13, color: '#92400e', lineHeight: 18, flex: 1 }}>
+                  {item.adminComment}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
       </Pressable>
     );
   };
 
-
   return (
-    <Box className="flex-1 bg-gray-50">
-      {/* Header - Material Design 3 */}
-      <HStack className="bg-white px-4 py-3 border-b border-gray-100 justify-between items-center" style={{ paddingTop: insets.top + 12 }}>
-        <HStack space="sm" className="items-center">
-          <Box className="w-10 h-10 rounded-full bg-blue-50 items-center justify-center">
-            <Ionicons name="document-text" size={20} color="#2563eb" />
-          </Box>
-          <Heading size="lg" className="text-gray-900">Radni Nalozi</Heading>
-        </HStack>
-        <HStack space="xs" className="items-center">
-          <SyncStatusIndicator onPress={() => setShowSyncModal(true)} />
-          <Pressable
-            onPress={() => setShowFilters(true)}
-            style={{ minHeight: 44, minWidth: 44 }}
-            className="bg-blue-50 rounded-xl items-center justify-center active:bg-blue-100"
-          >
-            <Ionicons name="filter-outline" size={22} color="#2563eb" />
-          </Pressable>
-        </HStack>
-      </HStack>
+    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+      {/* Header */}
+      <View style={{
+        backgroundColor: '#ffffff',
+        paddingTop: insets.top + 16,
+        paddingBottom: 16,
+        paddingHorizontal: 20,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 4,
+        elevation: 3,
+      }}>
+        {/* Title Row */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <View>
+            <Text style={{ fontSize: 28, fontWeight: '700', color: '#111827', marginBottom: 4 }}>
+              Nalozi
+            </Text>
+            <Text style={{ fontSize: 14, color: '#6b7280', fontWeight: '500' }}>
+              {stats.total} aktivnih
+            </Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ marginRight: 12 }}>
+              <SyncStatusIndicator onPress={() => setShowSyncModal(true)} />
+            </View>
+            <Pressable
+              onPress={() => setShowFilters(true)}
+              style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginRight: 8 }}
+            >
+              <Ionicons name="options-outline" size={24} color="#111827" />
+            </Pressable>
+            <Pressable
+              onPress={handleLogout}
+              style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Ionicons name="log-out-outline" size={24} color="#111827" />
+            </Pressable>
+          </View>
+        </View>
 
-      {/* Stats Cards - Material Design 3 */}
-      <Box className="px-2 py-1.5 bg-white mb-2">
-        <HStack space="xs">
-          <Box className="flex-1 bg-blue-50 rounded-lg border border-blue-100" style={{ minHeight: 42, paddingVertical: 6, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center' }}>
-            <HStack space="xs" className="items-center" style={{ marginBottom: 2 }}>
-              <Box className="w-3.5 h-3.5 rounded-full bg-blue-100 items-center justify-center">
-                <Ionicons name="apps" size={9} color="#2563eb" />
-              </Box>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#1d4ed8' }}>{stats.total}</Text>
-            </HStack>
-            <Text style={{ fontSize: 8, color: '#2563eb' }}>UKUPNO</Text>
-          </Box>
-          <Box className="flex-1 bg-green-50 rounded-lg border border-green-100" style={{ minHeight: 42, paddingVertical: 6, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center' }}>
-            <HStack space="xs" className="items-center" style={{ marginBottom: 2 }}>
-              <Box className="w-3.5 h-3.5 rounded-full bg-green-100 items-center justify-center">
-                <Ionicons name="checkmark-circle" size={9} color="#059669" />
-              </Box>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#047857' }}>{stats.completed}</Text>
-            </HStack>
-            <Text style={{ fontSize: 8, color: '#059669' }}>ZAVRŠENO</Text>
-          </Box>
-          <Box className="flex-1 bg-yellow-50 rounded-lg border border-yellow-100" style={{ minHeight: 42, paddingVertical: 6, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center' }}>
-            <HStack space="xs" className="items-center" style={{ marginBottom: 2 }}>
-              <Box className="w-3.5 h-3.5 rounded-full bg-yellow-100 items-center justify-center">
-                <Ionicons name="time" size={9} color="#ca8a04" />
-              </Box>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#a16207' }}>{stats.pending}</Text>
-            </HStack>
-            <Text style={{ fontSize: 8, color: '#ca8a04' }}>NEZAVRŠENO</Text>
-          </Box>
-          <Box className="flex-1 bg-purple-50 rounded-lg border border-purple-100" style={{ minHeight: 42, paddingVertical: 6, paddingHorizontal: 4, justifyContent: 'center', alignItems: 'center' }}>
-            <HStack space="xs" className="items-center" style={{ marginBottom: 2 }}>
-              <Box className="w-3.5 h-3.5 rounded-full bg-purple-100 items-center justify-center">
-                <Ionicons name="star" size={9} color="#9333ea" />
-              </Box>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: '#7e22ce' }}>{stats.newOrders}</Text>
-            </HStack>
-            <Text style={{ fontSize: 8, color: '#9333ea' }}>NOVI</Text>
-          </Box>
-        </HStack>
-      </Box>
+        {/* Search Bar */}
+        <View style={{
+          backgroundColor: '#f3f4f6',
+          borderRadius: 12,
+          paddingHorizontal: 14,
+          paddingVertical: 12,
+          flexDirection: 'row',
+          alignItems: 'center'
+        }}>
+          <Ionicons name="search" size={20} color="#6b7280" />
+          <InputField
+            placeholder="Pretraži naloge..."
+            value={searchTerm}
+            onChangeText={setSearchTerm}
+            style={{
+              flex: 1,
+              fontSize: 15,
+              color: '#111827',
+              fontWeight: '500',
+              marginLeft: 10,
+              padding: 0
+            }}
+            placeholderTextColor="#9ca3af"
+          />
+          {searchTerm ? (
+            <Pressable onPress={() => setSearchTerm('')} style={{ padding: 4 }}>
+              <Ionicons name="close-circle" size={20} color="#9ca3af" />
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      {/* Filter Pills */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 16 }}
+        style={{ flexGrow: 0, flexShrink: 0 }}
+      >
+        {[
+          { value: 'all', label: 'Svi', count: stats.total, icon: 'albums-outline', color: '#3b82f6' },
+          { value: 'new', label: 'Novi', count: stats.newOrders, icon: 'star', color: '#8b5cf6' },
+          { value: 'nezavrsen', label: 'U toku', count: stats.pending, icon: 'play-circle', color: '#3b82f6' },
+          { value: 'zavrsen', label: 'Završeni', count: stats.completed, icon: 'checkmark-circle', color: '#059669' },
+          { value: 'odlozen', label: 'Odloženi', count: stats.postponed, icon: 'pause-circle', color: '#f59e0b' },
+          { value: 'otkazan', label: 'Otkazani', count: stats.cancelled, icon: 'close-circle', color: '#64748b' },
+        ].map((filter, index) => (
+          <Pressable
+            key={filter.value}
+            onPress={() => setStatusFilter(filter.value)}
+            style={{
+              backgroundColor: statusFilter === filter.value ? filter.color : '#ffffff',
+              paddingHorizontal: 18,
+              paddingVertical: 14,
+              borderRadius: 20,
+              borderWidth: 2,
+              borderColor: statusFilter === filter.value ? filter.color : '#e5e7eb',
+              marginRight: index < 5 ? 10 : 0,
+              minWidth: 110,
+              height: 70,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+              <Ionicons
+                name={filter.icon}
+                size={18}
+                color={statusFilter === filter.value ? '#ffffff' : filter.color}
+              />
+              <Text style={{
+                fontSize: 18,
+                fontWeight: '700',
+                color: statusFilter === filter.value ? '#ffffff' : '#111827',
+                marginLeft: 6
+              }}>
+                {filter.count}
+              </Text>
+            </View>
+            <Text style={{
+              fontSize: 13,
+              fontWeight: '600',
+              color: statusFilter === filter.value ? '#ffffff' : '#6b7280'
+            }}>
+              {filter.label}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
 
       {/* Work Orders List */}
       <FlatList
         data={sortedWorkOrders}
         renderItem={renderWorkOrder}
         keyExtractor={(item) => item._id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: Math.max(insets.bottom, 16) }}
+        contentContainerStyle={{
+          paddingHorizontal: 20,
+          paddingBottom: Math.max(insets.bottom + 20, 40)
+        }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
-          <Box className="flex-1 items-center justify-center p-12">
-            <Box className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-4">
+          <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 60 }}>
+            <View style={{
+              width: 80,
+              height: 80,
+              borderRadius: 40,
+              backgroundColor: '#f3f4f6',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 16
+            }}>
               <Ionicons name="document-text-outline" size={40} color="#9ca3af" />
-            </Box>
-            <Text size="md" bold className="text-gray-700 text-center mb-2">
-              {searchTerm || statusFilter ? 'Nema rezultata' : 'Nema radnih naloga'}
+            </View>
+            <Text style={{ fontSize: 18, fontWeight: '600', color: '#111827', marginBottom: 8 }}>
+              {searchTerm || statusFilter !== 'new' ? 'Nema rezultata' : 'Nema naloga'}
             </Text>
-            <Text size="sm" className="text-gray-500 text-center">
-              {searchTerm || statusFilter
+            <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', paddingHorizontal: 40 }}>
+              {searchTerm || statusFilter !== 'new'
                 ? 'Pokušajte sa drugačijom pretragom'
                 : 'Trenutno nemate dodeljenih radnih naloga'}
             </Text>
-          </Box>
+          </View>
         }
       />
 
-      {/* Filter Modal - Material Design 3 */}
+      {/* Filter Modal */}
       <Modal visible={showFilters} animationType="slide" transparent onRequestClose={() => setShowFilters(false)}>
-        <Pressable onPress={() => setShowFilters(false)} className="flex-1 bg-black/50 justify-end">
-          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl p-6 max-h-[80%]">
-            <HStack className="justify-between items-center mb-6">
-              <HStack space="sm" className="items-center">
-                <Box className="w-10 h-10 rounded-full bg-blue-50 items-center justify-center">
-                  <Ionicons name="filter" size={20} color="#2563eb" />
-                </Box>
-                <Heading size="lg" className="text-gray-900">Filteri i pretraga</Heading>
-              </HStack>
+        <Pressable onPress={() => setShowFilters(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={{
+              backgroundColor: '#ffffff',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingTop: 24,
+              paddingBottom: Math.max(insets.bottom + 24, 40),
+              paddingHorizontal: 20
+            }}>
+              {/* Handle */}
+              <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                <View style={{ width: 40, height: 5, backgroundColor: '#e5e7eb', borderRadius: 3 }} />
+              </View>
+
+              {/* Header */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+                <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827' }}>Filteri</Text>
+                <Pressable onPress={() => setShowFilters(false)} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="close" size={28} color="#6b7280" />
+                </Pressable>
+              </View>
+
+              {/* Status */}
+              <View style={{ marginBottom: 24 }}>
+                <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 12 }}>Status</Text>
+                {[
+                  { value: 'all', label: 'Svi nalozi', icon: 'albums-outline' },
+                  { value: 'zavrsen', label: 'Završeni', icon: 'checkmark-circle' },
+                  { value: 'new', label: 'Novi', icon: 'star' },
+                  { value: 'nezavrsen', label: 'U toku', icon: 'play-circle' },
+                  { value: 'odlozen', label: 'Odloženi', icon: 'pause-circle' },
+                  { value: 'otkazan', label: 'Otkazani', icon: 'close-circle' }
+                ].map((status, index) => (
+                  <Pressable
+                    key={status.value}
+                    onPress={() => setStatusFilter(status.value)}
+                    style={{
+                      backgroundColor: statusFilter === status.value ? '#2563eb' : '#f9fafb',
+                      borderRadius: 12,
+                      paddingVertical: 14,
+                      paddingHorizontal: 16,
+                      marginBottom: index < 5 ? 10 : 0,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <Ionicons
+                        name={status.icon}
+                        size={22}
+                        color={statusFilter === status.value ? '#ffffff' : '#6b7280'}
+                      />
+                      <Text style={{
+                        fontSize: 16,
+                        fontWeight: '600',
+                        color: statusFilter === status.value ? '#ffffff' : '#111827',
+                        marginLeft: 12
+                      }}>
+                        {status.label}
+                      </Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Apply Button */}
               <Pressable
                 onPress={() => setShowFilters(false)}
-                style={{ minHeight: 44, minWidth: 44 }}
-                className="items-center justify-center"
+                style={{
+                  backgroundColor: '#2563eb',
+                  borderRadius: 12,
+                  paddingVertical: 16,
+                }}
               >
-                <Ionicons name="close-circle" size={28} color="#9ca3af" />
+                <Text style={{ fontSize: 16, fontWeight: '600', color: '#ffffff', textAlign: 'center' }}>
+                  Primeni filtere
+                </Text>
               </Pressable>
-            </HStack>
-
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <VStack space="md">
-                <VStack space="sm">
-                  <Text size="sm" bold className="text-gray-700">Pretraga</Text>
-                  <Input variant="outline" size="lg" className="bg-gray-50 border-2 border-gray-200">
-                    <InputField
-                      placeholder="Pretraži po opštini, adresi..."
-                      value={searchTerm}
-                      onChangeText={setSearchTerm}
-                    />
-                  </Input>
-                </VStack>
-
-                <VStack space="sm">
-                  <Text size="sm" bold className="text-gray-700">Status naloga</Text>
-                  <VStack space="xs">
-                    {[
-                      { value: '', label: 'Svi nalozi', icon: 'apps' },
-                      { value: 'nezavrsen', label: 'Nezavršeni', icon: 'time' },
-                      { value: 'zavrsen', label: 'Završeni', icon: 'checkmark-circle' },
-                      { value: 'odlozen', label: 'Odloženi', icon: 'pause-circle' }
-                    ].map((status) => (
-                      <Pressable
-                        key={status.value}
-                        className={`px-4 py-3.5 rounded-xl border-2 ${
-                          statusFilter === status.value
-                            ? 'bg-blue-50 border-blue-600'
-                            : 'bg-white border-gray-200'
-                        }`}
-                        onPress={() => setStatusFilter(status.value)}
-                      >
-                        <HStack space="sm" className="items-center">
-                          <Box className={`w-8 h-8 rounded-full items-center justify-center ${
-                            statusFilter === status.value ? 'bg-blue-100' : 'bg-gray-100'
-                          }`}>
-                            <Ionicons
-                              name={status.icon}
-                              size={18}
-                              color={statusFilter === status.value ? '#2563eb' : '#6b7280'}
-                            />
-                          </Box>
-                          <Text
-                            size="sm"
-                            bold
-                            className={statusFilter === status.value ? 'text-blue-700' : 'text-gray-700'}
-                          >
-                            {status.label}
-                          </Text>
-                        </HStack>
-                      </Pressable>
-                    ))}
-                  </VStack>
-                </VStack>
-
-                <Pressable
-                  onPress={() => setShowFilters(false)}
-                  className="rounded-xl"
-                >
-                  <Box className="bg-blue-600 rounded-xl py-3.5 active:bg-blue-700">
-                    <HStack space="sm" className="items-center justify-center">
-                      <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                      <Text size="sm" bold className="text-white">Primeni filtere</Text>
-                    </HStack>
-                  </Box>
-                </Pressable>
-              </VStack>
-            </ScrollView>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>
-    </Box>
+    </View>
   );
 }

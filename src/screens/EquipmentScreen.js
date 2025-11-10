@@ -1,18 +1,10 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
-import { FlatList, RefreshControl, Modal, Alert, Pressable } from 'react-native';
+import { View, Text, FlatList, RefreshControl, Modal, Alert, Pressable, ScrollView, TextInput } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 import { useOffline } from '../context/OfflineContext';
 import { useEquipmentConfirmation } from '../context/EquipmentConfirmationContext';
 import dataRepository from '../services/dataRepository';
-import { VStack } from '../components/ui/vstack';
-import { HStack } from '../components/ui/hstack';
-import { Box } from '../components/ui/box';
-import { Card } from '../components/ui/card';
-import { Text } from '../components/ui/text';
-import { Heading } from '../components/ui/heading';
-import { Input, InputField } from '../components/ui/input';
-import { Button, ButtonText } from '../components/ui/button';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function EquipmentScreen() {
@@ -24,8 +16,8 @@ export default function EquipmentScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [showSearchModal, setShowSearchModal] = useState(false);
 
   useEffect(() => {
     fetchEquipment();
@@ -34,7 +26,6 @@ export default function EquipmentScreen() {
   const fetchEquipment = async (forceRefresh = false) => {
     if (!user?._id) return;
     try {
-      // Koristi dataRepository za offline-first pristup
       const eq = await dataRepository.getEquipment(user._id, forceRefresh);
       setEquipment(eq);
     } catch (error) {
@@ -49,24 +40,88 @@ export default function EquipmentScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    // Proveri i pending equipment i fetch equipment
     await Promise.all([
-      fetchEquipment(isOnline), // Force refresh samo ako je online
+      fetchEquipment(isOnline),
       checkPendingEquipment()
     ]);
     setRefreshing(false);
   };
 
+  // Kategorije sa ikonama i bojama
+  const getCategoryConfig = (category) => {
+    const cat = category?.toLowerCase() || '';
+
+    // HFC/GPON/PON Modemi - plava
+    if (cat.includes('hfc') || cat.includes('modem') || cat.includes('gpon') || cat.includes('pon')) {
+      return { icon: 'wifi', color: '#3b82f6', label: 'Modem' };
+    }
+
+    // Hybrid - ljubičasta
+    if (cat.includes('hybrid') || cat.includes('hibrid')) {
+      return { icon: 'swap-horizontal', color: '#8b5cf6', label: 'Hybrid' };
+    }
+
+    // STB (Set-Top Box) - roze
+    if (cat.includes('stb') || cat.includes('dtv') || cat.includes('atv') || cat.includes('ott') || cat.includes('tv po tvom') || cat.includes('smart') || cat.includes('skaymaster')) {
+      return { icon: 'videocam', color: '#ec4899', label: 'Set-Top Box' };
+    }
+
+    // CAM (Conditional Access Module) - crvena
+    if (cat.includes('cam') && !cat.includes('stb')) {
+      return { icon: 'lock-closed', color: '#dc2626', label: 'CAM' };
+    }
+
+    // SIM Kartica - narandžasta
+    if (cat.includes('sim')) {
+      return { icon: 'cellular', color: '#f59e0b', label: 'SIM' };
+    }
+
+    // Smartcard/Kartica - žuta
+    if (cat.includes('kartica') || cat.includes('card')) {
+      return { icon: 'card-outline', color: '#eab308', label: 'Kartica' };
+    }
+
+    // Move - zelena
+    if (cat.includes('move')) {
+      return { icon: 'swap-horizontal-outline', color: '#10b981', label: 'Move' };
+    }
+
+    // Box - siva
+    if (cat.includes('box') || cat.includes('can') || cat.includes('test')) {
+      return { icon: 'cube-outline', color: '#6b7280', label: 'Ostalo' };
+    }
+
+    // Default - siva
+    return { icon: 'hardware-chip', color: '#6b7280', label: category };
+  };
+
   const categories = useMemo(() => {
-    return [...new Set(equipment.map(item => item.category))];
+    const cats = [...new Set(equipment.map(item => item.category))].sort();
+    console.log('📦 Equipment categories found:', cats);
+    cats.forEach(cat => {
+      const config = getCategoryConfig(cat);
+      console.log(`  - ${cat}: icon=${config.icon}, color=${config.color}, label=${config.label}`);
+    });
+    return cats;
   }, [equipment]);
+
+  const stats = useMemo(() => {
+    const byCategory = {};
+    categories.forEach(cat => {
+      byCategory[cat] = equipment.filter(item => item.category === cat).length;
+    });
+    return {
+      total: equipment.length,
+      byCategory
+    };
+  }, [equipment, categories]);
 
   const filteredEquipment = useMemo(() => {
     return equipment.filter(item => {
       const searchMatch = searchTerm === '' ||
         item.serialNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         item.description?.toLowerCase().includes(searchTerm.toLowerCase());
-      const categoryMatch = categoryFilter === '' || item.category === categoryFilter;
+      const categoryMatch = categoryFilter === 'all' || item.category === categoryFilter;
       return searchMatch && categoryMatch;
     });
   }, [equipment, searchTerm, categoryFilter]);
@@ -79,224 +134,365 @@ export default function EquipmentScreen() {
     });
   }, [filteredEquipment]);
 
-  const stats = useMemo(() => ({
-    total: equipment.length,
-    byCategory: categories.reduce((acc, cat) => ({
-      ...acc,
-      [cat]: equipment.filter(item => item.category === cat).length
-    }), {})
-  }), [equipment, categories]);
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 12;
-  const indexOfLastItem = currentPage * itemsPerPage;
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage;
-  const currentItems = sortedEquipment.slice(indexOfFirstItem, indexOfLastItem);
-  const totalPages = Math.ceil(sortedEquipment.length / itemsPerPage);
-
-  const paginate = (pageNumber) => {
-    setCurrentPage(pageNumber);
-  };
-
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('sr-RS');
+    return new Date(dateString).toLocaleDateString('sr-RS', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
-  const renderEquipmentItem = ({ item }) => (
-    <Box className="bg-white mb-3 p-4 rounded-2xl shadow-sm border border-gray-100">
-      <HStack space="sm" className="items-center">
-        <Box className="w-12 h-12 rounded-full bg-green-50 items-center justify-center">
-          <Ionicons name="hardware-chip" size={24} color="#059669" />
-        </Box>
-        <VStack className="flex-1" space="xs">
-          <HStack className="justify-between items-center mb-1">
-            <Box className="bg-green-100 rounded-full px-3 py-1">
-              <Text size="xs" bold className="text-green-700">
-                {item.category}
-              </Text>
-            </Box>
-            <HStack space="xs" className="items-center">
-              <Ionicons name="calendar-outline" size={12} color="#6b7280" />
-              <Text size="xs" className="text-gray-500">
-                {formatDate(item.assignedAt)}
-              </Text>
-            </HStack>
-          </HStack>
-          <Text size="md" bold className="text-gray-900">
-            {item.description}
-          </Text>
-          <HStack space="xs">
-            <Text size="xs" bold className="text-gray-600">S/N:</Text>
-            <Text size="xs" className="text-gray-700 font-mono">
-              {item.serialNumber}
+  const renderEquipmentItem = ({ item }) => {
+    const config = getCategoryConfig(item.category);
+
+    return (
+      <View style={{
+        backgroundColor: '#ffffff',
+        marginHorizontal: 20,
+        marginBottom: 12,
+        padding: 16,
+        borderRadius: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 3,
+        elevation: 2,
+        borderWidth: 1,
+        borderColor: '#f3f4f6',
+      }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {/* Icon */}
+          <View style={{
+            width: 48,
+            height: 48,
+            borderRadius: 24,
+            backgroundColor: `${config.color}15`,
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginRight: 12,
+          }}>
+            <Ionicons name={config.icon} size={24} color={config.color} />
+          </View>
+
+          {/* Content */}
+          <View style={{ flex: 1 }}>
+            {/* Category Badge & Date */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <View style={{
+                backgroundColor: `${config.color}15`,
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 12
+              }}>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: config.color }}>
+                  {item.category}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons name="calendar-outline" size={12} color="#9ca3af" />
+                <Text style={{ fontSize: 11, color: '#9ca3af', marginLeft: 4 }}>
+                  {formatDate(item.assignedAt)}
+                </Text>
+              </View>
+            </View>
+
+            {/* Description */}
+            <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827', marginBottom: 4 }}>
+              {item.description}
             </Text>
-          </HStack>
-        </VStack>
-      </HStack>
-    </Box>
-  );
+
+            {/* Serial Number */}
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: '#6b7280' }}>S/N: </Text>
+              <Text style={{ fontSize: 12, color: '#374151', fontFamily: 'monospace' }}>
+                {item.serialNumber}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
+  };
 
   return (
-    <Box className="flex-1 bg-gray-50">
-      {/* Header - Material Design 3 */}
-      <HStack className="bg-white px-4 py-3 border-b border-gray-100 justify-between items-center" style={{ paddingTop: insets.top + 12 }}>
-        <HStack space="sm" className="items-center">
-          <Box className="w-10 h-10 rounded-full bg-green-50 items-center justify-center">
-            <Ionicons name="hardware-chip" size={20} color="#059669" />
-          </Box>
-          <Heading size="lg" className="text-gray-900">Moja Oprema</Heading>
-        </HStack>
+    <View style={{ flex: 1, backgroundColor: '#f9fafb' }}>
+      {/* Header - Modern Design */}
+      <View style={{
+        backgroundColor: '#ffffff',
+        paddingTop: insets.top + 12,
+        paddingBottom: 16,
+        paddingHorizontal: 20,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f3f4f6',
+      }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              backgroundColor: '#dbeafe',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 12,
+            }}>
+              <Ionicons name="cube" size={24} color="#2563eb" />
+            </View>
+            <View>
+              <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827' }}>
+                Moja Oprema
+              </Text>
+              <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
+                {isOnline ? 'Online' : 'Offline mod'}
+              </Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={() => setShowSearchModal(true)}
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              backgroundColor: '#dbeafe',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="search" size={22} color="#2563eb" />
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Filter Pills */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingVertical: 16 }}
+        style={{ flexGrow: 0, flexShrink: 0 }}
+      >
+        {/* All */}
         <Pressable
-          onPress={() => setShowFilters(true)}
-          style={{ minHeight: 44, minWidth: 44 }}
-          className="bg-blue-50 rounded-xl items-center justify-center active:bg-blue-100"
+          onPress={() => setCategoryFilter('all')}
+          style={{
+            backgroundColor: categoryFilter === 'all' ? '#3b82f6' : '#ffffff',
+            paddingHorizontal: 18,
+            paddingVertical: 14,
+            borderRadius: 20,
+            borderWidth: 2,
+            borderColor: categoryFilter === 'all' ? '#3b82f6' : '#e5e7eb',
+            marginRight: 10,
+            minWidth: 110,
+            height: 70,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
-          <Ionicons name="search-outline" size={22} color="#2563eb" />
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+            <Ionicons
+              name="albums-outline"
+              size={18}
+              color={categoryFilter === 'all' ? '#ffffff' : '#3b82f6'}
+            />
+            <Text style={{
+              fontSize: 18,
+              fontWeight: '700',
+              color: categoryFilter === 'all' ? '#ffffff' : '#111827',
+              marginLeft: 6
+            }}>
+              {stats.total}
+            </Text>
+          </View>
+          <Text style={{
+            fontSize: 13,
+            fontWeight: '600',
+            color: categoryFilter === 'all' ? '#ffffff' : '#6b7280'
+          }}>
+            Svi
+          </Text>
         </Pressable>
-      </HStack>
 
-      {/* Stats Cards - Material Design 3 */}
-      <Box className="px-4 py-4 bg-white mb-2">
-        <HStack space="sm">
-          <Box className="flex-1 bg-blue-50 p-4 rounded-2xl border border-blue-100">
-            <VStack space="xs">
-              <HStack space="xs" className="items-center mb-1">
-                <Box className="w-6 h-6 rounded-full bg-blue-100 items-center justify-center">
-                  <Ionicons name="layers" size={14} color="#2563eb" />
-                </Box>
-              </HStack>
-              <Text size="2xl" bold className="text-blue-700">{stats.total}</Text>
-              <Text size="xs" className="text-blue-600 uppercase tracking-wide">Ukupno</Text>
-            </VStack>
-          </Box>
-          {Object.entries(stats.byCategory).slice(0, 2).map(([category, count]) => (
-            <Box key={category} className="flex-1 bg-green-50 p-4 rounded-2xl border border-green-100">
-              <VStack space="xs">
-                <HStack space="xs" className="items-center mb-1">
-                  <Box className="w-6 h-6 rounded-full bg-green-100 items-center justify-center">
-                    <Ionicons name="checkmark-circle" size={14} color="#059669" />
-                  </Box>
-                </HStack>
-                <Text size="2xl" bold className="text-green-700">{count}</Text>
-                <Text size="xs" className="text-green-600 uppercase tracking-wide" numberOfLines={1}>{category}</Text>
-              </VStack>
-            </Box>
-          ))}
-        </HStack>
-      </Box>
+        {/* Category Pills */}
+        {categories.map((category, index) => {
+          const config = getCategoryConfig(category);
+          const count = stats.byCategory[category] || 0;
+          const isActive = categoryFilter === category;
 
+          return (
+            <Pressable
+              key={category}
+              onPress={() => setCategoryFilter(category)}
+              style={{
+                backgroundColor: isActive ? config.color : '#ffffff',
+                paddingHorizontal: 18,
+                paddingVertical: 14,
+                borderRadius: 20,
+                borderWidth: 2,
+                borderColor: isActive ? config.color : '#e5e7eb',
+                marginRight: index < categories.length - 1 ? 10 : 0,
+                minWidth: 110,
+                height: 70,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                <Ionicons
+                  name={config.icon}
+                  size={18}
+                  color={isActive ? '#ffffff' : config.color}
+                />
+                <Text style={{
+                  fontSize: 18,
+                  fontWeight: '700',
+                  color: isActive ? '#ffffff' : '#111827',
+                  marginLeft: 6
+                }}>
+                  {count}
+                </Text>
+              </View>
+              <Text style={{
+                fontSize: 13,
+                fontWeight: '600',
+                color: isActive ? '#ffffff' : '#6b7280'
+              }} numberOfLines={1}>
+                {category}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      {/* Equipment List */}
       <FlatList
-        data={currentItems}
+        data={sortedEquipment}
         renderItem={renderEquipmentItem}
         keyExtractor={(item) => item.id || item.serialNumber}
-        contentContainerStyle={{ padding: 16, paddingBottom: Math.max(insets.bottom, 16) }}
+        contentContainerStyle={{ paddingTop: 8, paddingBottom: Math.max(insets.bottom + 16, 24) }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
-          <Box className="flex-1 items-center justify-center p-12">
-            <Box className="w-20 h-20 rounded-full bg-gray-100 items-center justify-center mb-4">
-              <Ionicons name="hardware-chip-outline" size={40} color="#9ca3af" />
-            </Box>
-            <Text size="md" bold className="text-gray-700 text-center mb-2">
-              {searchTerm || categoryFilter ? 'Nema rezultata' : 'Nema opreme'}
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 80 }}>
+            <View style={{
+              width: 80,
+              height: 80,
+              borderRadius: 40,
+              backgroundColor: '#f3f4f6',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 16,
+            }}>
+              <Ionicons name="cube-outline" size={40} color="#9ca3af" />
+            </View>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: '#374151', marginBottom: 8 }}>
+              {searchTerm || categoryFilter !== 'all' ? 'Nema rezultata' : 'Nema opreme'}
             </Text>
-            <Text size="sm" className="text-gray-500 text-center">
-              {searchTerm || categoryFilter ? 'Pokušajte sa drugačijom pretragom' : 'Trenutno nemate zadužene opreme'}
+            <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', paddingHorizontal: 40 }}>
+              {searchTerm || categoryFilter !== 'all'
+                ? 'Pokušajte sa drugačijom pretragom'
+                : 'Trenutno nemate zaduženu opremu'}
             </Text>
-          </Box>
-        }
-        ListFooterComponent={
-          sortedEquipment.length > itemsPerPage ? (
-            <Box className="bg-white mx-4 mt-4 p-4 rounded-2xl shadow-sm border border-gray-100">
-              <HStack space="sm" className="justify-between items-center">
-                <Pressable
-                  onPress={() => paginate(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  style={{ minHeight: 44, minWidth: 44 }}
-                  className={`rounded-xl items-center justify-center ${
-                    currentPage === 1 ? 'bg-gray-100' : 'bg-blue-50 active:bg-blue-100'
-                  }`}
-                >
-                  <Ionicons
-                    name="chevron-back"
-                    size={20}
-                    color={currentPage === 1 ? '#9ca3af' : '#2563eb'}
-                  />
-                </Pressable>
-
-                <Box className="flex-1 items-center">
-                  <Text size="sm" bold className="text-gray-700">
-                    Stranica {currentPage} od {totalPages}
-                  </Text>
-                </Box>
-
-                <Pressable
-                  onPress={() => paginate(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                  style={{ minHeight: 44, minWidth: 44 }}
-                  className={`rounded-xl items-center justify-center ${
-                    currentPage === totalPages ? 'bg-gray-100' : 'bg-blue-50 active:bg-blue-100'
-                  }`}
-                >
-                  <Ionicons
-                    name="chevron-forward"
-                    size={20}
-                    color={currentPage === totalPages ? '#9ca3af' : '#2563eb'}
-                  />
-                </Pressable>
-              </HStack>
-            </Box>
-          ) : null
+          </View>
         }
       />
 
-      {/* Filters Modal - Material Design 3 */}
-      <Modal visible={showFilters} animationType="slide" transparent onRequestClose={() => setShowFilters(false)}>
-        <Pressable onPress={() => setShowFilters(false)} className="flex-1 bg-black/50 justify-end">
-          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl p-6 max-h-[80%]">
-            <HStack className="justify-between items-center mb-6">
-              <HStack space="sm" className="items-center">
-                <Box className="w-10 h-10 rounded-full bg-blue-50 items-center justify-center">
-                  <Ionicons name="options" size={20} color="#2563eb" />
-                </Box>
-                <Heading size="lg" className="text-gray-900">Filteri i pretraga</Heading>
-              </HStack>
-              <Pressable
-                onPress={() => setShowFilters(false)}
-                style={{ minHeight: 44, minWidth: 44 }}
-                className="items-center justify-center"
-              >
-                <Ionicons name="close-circle" size={28} color="#9ca3af" />
+      {/* Search Modal */}
+      <Modal
+        visible={showSearchModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowSearchModal(false)}
+      >
+        <Pressable
+          onPress={() => setShowSearchModal(false)}
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            justifyContent: 'flex-end',
+          }}
+        >
+          <Pressable
+            onPress={(e) => e.stopPropagation()}
+            style={{
+              backgroundColor: '#ffffff',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              padding: 24,
+              maxHeight: '60%',
+            }}
+          >
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827' }}>Pretraga</Text>
+              <Pressable onPress={() => setShowSearchModal(false)} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="close" size={28} color="#6b7280" />
               </Pressable>
-            </HStack>
+            </View>
 
-            <VStack space="md">
-              <VStack space="sm">
-                <Text size="sm" bold className="text-gray-700">Pretraga</Text>
-                <Input variant="outline" size="lg" className="bg-gray-50 border-2 border-gray-200">
-                  <InputField
-                    placeholder="Pretraži po S/N ili opisu..."
-                    value={searchTerm}
-                    onChangeText={setSearchTerm}
-                  />
-                </Input>
-              </VStack>
+            {/* Search Input */}
+            <View style={{ marginBottom: 24 }}>
+              <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 }}>
+                Pretraži opremu
+              </Text>
+              <View style={{
+                backgroundColor: '#f9fafb',
+                borderWidth: 1,
+                borderColor: '#d1d5db',
+                borderRadius: 12,
+                flexDirection: 'row',
+                alignItems: 'center',
+                paddingHorizontal: 16,
+              }}>
+                <Ionicons name="search" size={20} color="#9ca3af" />
+                <TextInput
+                  placeholder="S/N ili opis opreme..."
+                  value={searchTerm}
+                  onChangeText={setSearchTerm}
+                  style={{
+                    flex: 1,
+                    padding: 16,
+                    fontSize: 15,
+                    color: '#111827',
+                  }}
+                  placeholderTextColor="#9ca3af"
+                />
+              </View>
+            </View>
 
+            {/* Apply Button */}
+            <Pressable
+              onPress={() => setShowSearchModal(false)}
+              style={{
+                backgroundColor: '#2563eb',
+                borderRadius: 12,
+                paddingVertical: 16,
+                alignItems: 'center',
+                flexDirection: 'row',
+                justifyContent: 'center',
+              }}
+            >
+              <Ionicons name="checkmark-circle" size={20} color="#ffffff" style={{ marginRight: 8 }} />
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>
+                Primeni
+              </Text>
+            </Pressable>
+
+            {/* Clear Button */}
+            {searchTerm !== '' && (
               <Pressable
-                onPress={() => setShowFilters(false)}
-                className="rounded-xl"
+                onPress={() => {
+                  setSearchTerm('');
+                  setShowSearchModal(false);
+                }}
+                style={{
+                  marginTop: 12,
+                  paddingVertical: 16,
+                  alignItems: 'center',
+                }}
               >
-                <Box className="bg-blue-600 rounded-xl py-3.5 active:bg-blue-700">
-                  <HStack space="sm" className="items-center justify-center">
-                    <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                    <Text size="sm" bold className="text-white">Primeni filtere</Text>
-                  </HStack>
-                </Box>
+                <Text style={{ fontSize: 15, fontWeight: '600', color: '#6b7280' }}>
+                  Obriši pretragu
+                </Text>
               </Pressable>
-            </VStack>
+            )}
           </Pressable>
         </Pressable>
       </Modal>
-    </Box>
+    </View>
   );
 }

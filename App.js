@@ -15,6 +15,12 @@ import { NetworkStatusBanner, ConflictResolutionModal, SyncErrorModal } from './
 import UpdateNotification from './src/components/UpdateNotification';
 import apkUpdateService from './src/services/apkUpdateService';
 
+// VAŽNO: Registruj background notification task PRE inicijalizacije app-a
+// Ovo omogućava procesiranje notifikacija kada je app zatvoren ili u background-u
+import './src/services/backgroundTasks';
+// KRITIČNO: Importuj setupNotificationChannels funkciju
+import { setupNotificationChannels } from './src/services/notificationService';
+
 // Import debugging utilities (samo u dev modu)
 if (__DEV__) {
   require('./src/utils/clearSyncQueue');
@@ -32,6 +38,18 @@ function AppContent() {
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [navigationRef, setNavigationRef] = useState(null);
   const [currentRoute, setCurrentRoute] = useState(null);
+
+  // KRITIČNO: Kreiraj notification channels odmah pri pokretanju app-a
+  // OVO MORA biti PRE nego što prva notifikacija stigne!
+  useEffect(() => {
+    setupNotificationChannels().then(success => {
+      if (success) {
+        console.log('🚀 App started - Notification channels ready');
+      } else {
+        console.warn('⚠️ App started - Notification channels failed to create');
+      }
+    });
+  }, []);
 
   // Start APK update checking when app starts
   useEffect(() => {

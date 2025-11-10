@@ -13,6 +13,74 @@ Notifications.setNotificationHandler({
   }),
 });
 
+/**
+ * Kreiranje svih Android notification kanala
+ * OVA FUNKCIJA SE MORA POZVATI ŠTO PRE MOGUĆE PRI POKRETANJU APP-A
+ * KRITIČNO: Channels moraju postojati PRE nego što prva notifikacija stigne!
+ */
+export async function setupNotificationChannels() {
+  try {
+    // Samo za Android
+    if (Platform.OS !== 'android') {
+      return;
+    }
+
+    console.log('📱 Kreiram Android notification kanale...');
+
+    // Default kanal - generalne notifikacije
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'Robotik notifikacije',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
+      sound: 'default',
+    });
+
+    // Kanal za radne naloge (Work Orders)
+    await Notifications.setNotificationChannelAsync('work-orders', {
+      name: 'Radni nalozi',
+      description: 'Notifikacije za dodeljene i ažurirane radne naloge',
+      importance: Notifications.AndroidImportance.HIGH,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+    });
+
+    // Kanal za dodatu opremu (Equipment Added)
+    await Notifications.setNotificationChannelAsync('equipment-added', {
+      name: 'Dodata oprema',
+      description: 'Notifikacije kada vam je dodeljena nova oprema',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#4CAF50',
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+    });
+
+    // Kanal za uklonjenu opremu (Equipment Removed)
+    await Notifications.setNotificationChannelAsync('equipment-removed', {
+      name: 'Uklonjena oprema',
+      description: 'Notifikacije kada vam je uklonjena oprema',
+      importance: Notifications.AndroidImportance.DEFAULT,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#F44336',
+      sound: 'default',
+      enableLights: true,
+      enableVibrate: true,
+    });
+
+    console.log('✅ Svi notification kanali uspešno kreirani');
+    return true;
+
+  } catch (error) {
+    console.error('❌ Greška pri kreiranju notification kanala:', error);
+    return false;
+  }
+}
+
 class NotificationService {
   constructor() {
     this.notificationListener = null;
@@ -38,23 +106,31 @@ class NotificationService {
         return null;
       }
 
-      // Proveri Android dozvole
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'Robotik notifikacije',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#FF231F7C',
-          sound: 'default',
-        });
-      }
+      // Kreiraj sve notification kanale za Android
+      // NAPOMENA: Channels bi trebalo da su već kreirani pri pokretanju app-a u App.js,
+      // ali ponovo ih kreiramo ovde kao sigurnosnu meru (idempotent operacija)
+      await setupNotificationChannels();
 
       // Zatraži dozvolu od korisnika
+      // Za Android 13+ (API level 33+), POST_NOTIFICATIONS permisija je obavezna
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
 
       if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
+        console.log('🔔 Tražim dozvolu za notifikacije...');
+        const { status } = await Notifications.requestPermissionsAsync({
+          ios: {
+            allowAlert: true,
+            allowBadge: true,
+            allowSound: true,
+          },
+          android: {
+            // Android 13+ zahteva eksplicitno traženje POST_NOTIFICATIONS permisije
+            allowAlert: true,
+            allowBadge: true,
+            allowSound: true,
+          },
+        });
         finalStatus = status;
       }
 
@@ -62,6 +138,8 @@ class NotificationService {
         console.log('⚠️ Korisnik nije dozvolio notifikacije');
         return null;
       }
+
+      console.log('✅ Dozvola za notifikacije odobrena');
 
       // Dobij Expo push token - za standalone build automatski će koristiti projectId iz app.json
       const tokenOptions = {};
