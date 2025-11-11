@@ -68,7 +68,6 @@ class DataRepository {
       await offlineStorage.saveWorkOrders(technicianId, workOrders);
       await offlineStorage.setLastSync('workOrders', technicianId);
 
-      console.log(`[DataRepository] Refreshed ${workOrders.length} work orders for technician ${technicianId}`);
       return workOrders;
     } catch (error) {
       console.error('[DataRepository] Error refreshing work orders:', error);
@@ -186,7 +185,6 @@ class DataRepository {
       await offlineStorage.saveEquipment(technicianId, equipment);
       await offlineStorage.setLastSync('equipment', technicianId);
 
-      console.log(`[DataRepository] Refreshed ${equipment.length} equipment items`);
       return equipment;
     } catch (error) {
       console.error('[DataRepository] Error refreshing equipment:', error);
@@ -238,7 +236,6 @@ class DataRepository {
       await offlineStorage.saveMaterials(technicianId, materials);
       await offlineStorage.setLastSync('materials', technicianId);
 
-      console.log(`[DataRepository] Refreshed ${materials.length} materials`);
       return materials;
     } catch (error) {
       console.error('[DataRepository] Error refreshing materials:', error);
@@ -321,7 +318,6 @@ class DataRepository {
 
       await offlineStorage.saveUserEquipment(workOrderId, userEquipment);
 
-      console.log(`[DataRepository] Refreshed user equipment for work order ${workOrderId}`);
       return userEquipment;
     } catch (error) {
       console.error('[DataRepository] Error refreshing user equipment:', error);
@@ -623,7 +619,6 @@ class DataRepository {
 
       await offlineStorage.saveRemovedEquipment(workOrderId, removedEquipment);
 
-      console.log(`[DataRepository] Refreshed removed equipment for work order ${workOrderId}`);
       return removedEquipment;
     } catch (error) {
       console.error('[DataRepository] Error refreshing removed equipment:', error);
@@ -638,9 +633,10 @@ class DataRepository {
   /**
    * Upload-uje sliku za radni nalog
    */
-  async uploadWorkOrderImage(workOrderId, imageUri, technicianId) {
+  async uploadWorkOrderImage(workOrderId, imageUri, technicianId, autoProcess = true) {
     try {
-      // Dodaj u sync queue
+      // Dodaj u sync queue sa autoProcess parametrom
+      // Ovo kontroliše da li će addToQueue automatski pozvati processQueue
       await syncQueue.addToQueue({
         type: 'UPLOAD_IMAGE',
         entity: 'workOrderImages',
@@ -651,11 +647,7 @@ class DataRepository {
           imageUri,
           technicianId
         }
-      });
-
-      if (networkMonitor.getIsOnline()) {
-        syncQueue.processQueue();
-      }
+      }, autoProcess); // Prosleđujemo autoProcess parametar
 
       return true;
     } catch (error) {

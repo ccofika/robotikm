@@ -158,14 +158,6 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         dataRepository.getRemovedEquipment(orderId)
       ]);
 
-      console.log('[WorkOrderDetail] Loaded data:', {
-        techEqCount: techEq.length,
-        userEqCount: userEq.length,
-        materialsCount: materials.length,
-        removedEqCount: removedEq.length,
-        techEqSample: techEq[0]
-      });
-
       setTechnicianEquipment(techEq);
       setUserEquipment(userEq);
       setAvailableMaterials(materials);
@@ -228,32 +220,94 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     setUploadProgress(0);
 
     try {
+      // Prvo dodaj sve slike u queue (autoProcess = false da ne poziva processQueue nakon svake)
       for (let i = 0; i < images.length; i++) {
         const image = images[i];
+        console.log(`[ImageUpload] Adding image ${i + 1}/${images.length} to queue`);
 
-        // Koristi dataRepository za offline-first upload
-        await dataRepository.uploadWorkOrderImage(orderId, image.uri, user._id);
+        // Dodaj u queue (autoProcess = false ne poziva processQueue još)
+        await dataRepository.uploadWorkOrderImage(orderId, image.uri, user._id, false);
 
-        // Update progress
-        setUploadProgress(Math.round(((i + 1) / images.length) * 100));
+        // Update progress za dodavanje u queue
+        setUploadProgress(Math.round(((i + 1) / images.length) * 50)); // Prva polovina progress bara
       }
+
+      console.log(`[ImageUpload] All ${images.length} images added to queue`);
 
       // Ako je offline, prebaci slike u pendingSyncImages
       if (!isOnline) {
         setPendingSyncImages([...pendingSyncImages, ...images]);
+
+        // Clear local images
+        setImages([]);
+        setUploadProgress(100);
+
+        Alert.alert('Uspešno', 'Slike će biti uploadovane kada se povežete na internet');
+      } else {
+        // Ako je online, procesuj queue i čekaj da se sve slike upload-uju
+        console.log('[ImageUpload] Starting queue processing...');
+
+        // Ručno procesuj sve slike iz queue-a
+        const syncQueue = require('../services/syncQueue').default;
+
+        // Čekaj da se trenutno procesiranje završi ako je u toku
+        let waitAttempts = 0;
+        const maxWaitAttempts = 10; // max 10 sekundi čekanja da prethodno procesiranje završi
+        while (syncQueue.isProcessing && waitAttempts < maxWaitAttempts) {
+          console.log('[ImageUpload] Queue already processing, waiting...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          waitAttempts++;
+        }
+
+        console.log('[ImageUpload] Starting processQueue...');
+        // Procesuj queue - ovo će uploadovati sve slike sekvencijalno
+        await syncQueue.processQueue();
+
+        console.log('[ImageUpload] processQueue completed, checking results...');
+
+        // Proveri queue da vidimo koliko je uspešno upload-ovano
+        const finalQueue = await syncQueue.getQueue();
+        const remainingImages = finalQueue.filter(item =>
+          item.type === 'UPLOAD_IMAGE' &&
+          item.data.workOrderId === orderId &&
+          (item.status === 'pending' || item.status === 'failed')
+        );
+
+        console.log(`[ImageUpload] Queue check - Remaining in queue: ${remainingImages.length}`);
+        console.log(`[ImageUpload] Total images attempted: ${images.length}`);
+
+        // VAŽNO: Prvo refresh work order sa servera da vidimo stvarni broj slika
+        const imagesBefore = workOrder?.images?.length || 0;
+        console.log(`[ImageUpload] Images before upload: ${imagesBefore}`);
+
+        // Učitaj fresh podatke direktno sa servera
+        console.log('[ImageUpload] Fetching fresh work order data...');
+        const freshOrder = await dataRepository.getWorkOrder(user._id, orderId, true); // force=true za server refresh
+        const imagesAfter = freshOrder?.images?.length || 0;
+        const actualUploaded = imagesAfter - imagesBefore;
+
+        console.log(`[ImageUpload] Images after upload: ${imagesAfter}`);
+        console.log(`[ImageUpload] Actually uploaded: ${actualUploaded}/${images.length}`);
+
+        // Ažuriraj UI sa fresh podacima
+        await fetchWorkOrder();
+
+        // Clear local images
+        setImages([]);
+        setUploadProgress(100);
+
+        // Prikaži rezultat baziran na stvarnom broju upload-ovanih slika
+        if (actualUploaded === images.length && remainingImages.length === 0) {
+          Alert.alert('Uspešno', `Sve slike (${images.length}) su uspešno uploadovane!`);
+        } else if (actualUploaded > 0) {
+          Alert.alert(
+            'Delimično uspešno',
+            `Upload-ovano ${actualUploaded} od ${images.length} slika.${remainingImages.length > 0 ? ` ${remainingImages.length} slika nije uspelo.` : ''}`
+          );
+        } else {
+          Alert.alert('Greška', 'Nijedna slika nije uspešno uploadovana. Pokušajte ponovo.');
+        }
       }
-
-      // Clear local images koji su sada u upload procesu
-      setImages([]);
-
-      const message = isOnline
-        ? 'Sve slike su uspešno uploadovane!'
-        : 'Slike će biti uploadovane kada se povežete na internet';
-
-      Alert.alert('Uspešno', message);
-
-      // Refresh work order data
-      await fetchWorkOrder();
     } catch (error) {
       console.error('Greška pri upload-u slika:', error);
       Alert.alert('Greška', 'Neuspešno uploadovanje slika. Pokušajte ponovo.');
@@ -424,27 +478,52 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     }
 
     try {
+      // Pronađi ceo objekat materijala iz availableMaterials
+      const materialObject = availableMaterials.find(m => m._id === selectedMaterial);
+
+      console.log('[Materials] Adding material:', {
+        selectedMaterial,
+        materialObject,
+        availableMaterialsCount: availableMaterials.length
+      });
+
+      if (!materialObject) {
+        Alert.alert('Greška', 'Materijal nije pronađen');
+        return;
+      }
+
       // Pronađi postojeći materijal ili dodaj novi
       const existingMaterialIndex = usedMaterials.findIndex(
-        mat => mat.material === selectedMaterial || mat.materialId === selectedMaterial
+        mat => (mat.material === selectedMaterial || mat.materialId === selectedMaterial || mat.material?._id === selectedMaterial)
       );
 
       let updatedMaterials;
       if (existingMaterialIndex !== -1) {
+        // Ažuriraj postojeći materijal
         updatedMaterials = [...usedMaterials];
         updatedMaterials[existingMaterialIndex] = {
+          ...updatedMaterials[existingMaterialIndex],
           material: selectedMaterial,
+          materialId: selectedMaterial,
+          name: materialObject.name,
+          type: materialObject.type,
           quantity: updatedMaterials[existingMaterialIndex].quantity + parseInt(materialQuantity)
         };
       } else {
+        // Dodaj novi materijal sa svim informacijama
         updatedMaterials = [
           ...usedMaterials,
           {
             material: selectedMaterial,
+            materialId: selectedMaterial,
+            name: materialObject.name,
+            type: materialObject.type,
             quantity: parseInt(materialQuantity)
           }
         ];
       }
+
+      console.log('[Materials] Updated materials:', updatedMaterials);
 
       // Koristi dataRepository za offline-first ažuriranje
       await dataRepository.updateUsedMaterials(user._id, orderId, updatedMaterials);
@@ -453,6 +532,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         ? 'Materijal je dodat'
         : 'Materijal je dodat i biće sinhronizovan kada se povežete na internet';
 
+      console.log('[Materials] Material added successfully');
       Alert.alert('Uspešno', message);
       setShowMaterialsModal(false);
       setSelectedMaterial('');
@@ -476,10 +556,14 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           style: 'destructive',
           onPress: async () => {
             try {
+              console.log('[Materials] Removing material:', materialToRemove);
+
               // Ukloni materijal iz liste
               const updatedMaterials = usedMaterials.filter(
                 mat => (mat.material || mat.materialId) !== (materialToRemove.material || materialToRemove.materialId)
               );
+
+              console.log('[Materials] Materials after removal:', updatedMaterials);
 
               // Koristi dataRepository za offline-first ažuriranje
               await dataRepository.updateUsedMaterials(user._id, orderId, updatedMaterials);
@@ -695,16 +779,6 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     const statusMatch = eq.status === 'assigned';
     const notAssignedToUser = !eq.assignedToUser;
 
-    console.log('[WorkOrderDetail] Equipment filter:', {
-      description: eq.description,
-      assignedTo: eq.assignedTo,
-      userId: user._id,
-      assignedToMatch,
-      statusMatch,
-      notAssignedToUser,
-      passes: assignedToMatch && statusMatch && notAssignedToUser
-    });
-
     return assignedToMatch && statusMatch && notAssignedToUser;
   });
 
@@ -763,6 +837,24 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
           <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827', marginBottom: 8 }}>
             {workOrder.municipality}
           </Text>
+
+          {/* Details i Tip instalacije */}
+          {workOrder.details && (
+            <View style={{ marginBottom: 8 }}>
+              <Text style={{ fontSize: 13, color: '#374151', lineHeight: 20 }}>
+                {workOrder.details}
+              </Text>
+            </View>
+          )}
+          {workOrder.installationType && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <Ionicons name="settings-outline" size={14} color="#9ca3af" style={{ marginRight: 4 }} />
+              <Text style={{ fontSize: 12, color: '#6b7280', fontWeight: '500' }}>
+                {workOrder.installationType}
+              </Text>
+            </View>
+          )}
+
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 16 }}>
               <Ionicons name="calendar-outline" size={15} color="#6b7280" style={{ marginRight: 6 }} />
@@ -812,9 +904,25 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
               <Text style={{ fontSize: 15, fontWeight: '600', color: '#111827', marginBottom: 2 }}>
                 {workOrder.address}
               </Text>
-              <Text style={{ fontSize: 13, color: '#6b7280', fontWeight: '500' }}>
+              <Text style={{ fontSize: 13, color: '#6b7280', fontWeight: '500', marginBottom: (workOrder.tisId || workOrder.installationType) ? 4 : 0 }}>
                 {workOrder.type}
               </Text>
+              {workOrder.tisId && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: workOrder.installationType ? 4 : 0 }}>
+                  <Ionicons name="finger-print-outline" size={12} color="#9ca3af" style={{ marginRight: 4 }} />
+                  <Text style={{ fontSize: 12, color: '#9ca3af', fontWeight: '500' }}>
+                    TIS ID: {workOrder.tisId}
+                  </Text>
+                </View>
+              )}
+              {workOrder.installationType && (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="settings-outline" size={12} color="#9ca3af" style={{ marginRight: 4 }} />
+                  <Text style={{ fontSize: 12, color: '#9ca3af', fontWeight: '500' }}>
+                    Tip instalacije: {workOrder.installationType}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
           <Pressable
@@ -1192,7 +1300,8 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
             {usedMaterials.length > 0 ? (
               <View>
                 {usedMaterials.map((mat, index) => {
-                  const materialName = mat.name || mat.type || mat.material?.name || mat.material?.type || 'Nepoznat materijal';
+                  // Prioritet: direktno ime iz mat objekta, pa iz material reference, pa type
+                  const materialName = mat.name || mat.material?.name || mat.type || mat.material?.type || 'Nepoznat materijal';
                   return (
                     <View key={index} style={{
                       backgroundColor: '#f9fafb',
@@ -1674,7 +1783,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
               </Box>
 
               {/* Fixed Action Button */}
-              <Box className="px-6 py-4 border-t border-gray-100">
+              <Box className="px-6 border-t border-gray-100" style={{ paddingTop: 16, paddingBottom: Math.max(insets.bottom, 16) }}>
                 <Pressable
                   onPress={handleAddEquipment}
                   disabled={!selectedEquipment}
@@ -1702,7 +1811,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       <Modal visible={showMaterialsModal} animationType="slide" transparent onRequestClose={() => setShowMaterialsModal(false)}>
         <Pressable onPress={() => setShowMaterialsModal(false)} className="flex-1 bg-black/50 justify-end">
           <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl">
-            <VStack className="p-6 pb-8">
+            <VStack className="px-6 pt-6" style={{ paddingBottom: Math.max(insets.bottom + 8, 32) }}>
               {/* Header */}
               <HStack className="items-center justify-between mb-6">
                 <HStack space="sm" className="items-center">
@@ -1806,7 +1915,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       {/* Remove Equipment Modal */}
       <Modal visible={showRemoveEquipmentModal} animationType="slide" transparent onRequestClose={() => setShowRemoveEquipmentModal(false)}>
         <Pressable onPress={() => setShowRemoveEquipmentModal(false)} className="flex-1 bg-black/50 justify-end">
-          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl p-6 pb-8">
+          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl px-6 pt-6" style={{ paddingBottom: Math.max(insets.bottom + 8, 32) }}>
             <HStack className="items-center justify-between mb-6">
               <Heading size="lg" className="text-gray-900">Ukloni opremu</Heading>
               <Pressable onPress={() => setShowRemoveEquipmentModal(false)}>
@@ -1842,7 +1951,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       {/* Status Modal */}
       <Modal visible={showStatusModal} animationType="slide" transparent onRequestClose={() => setShowStatusModal(false)}>
         <Pressable onPress={() => setShowStatusModal(false)} className="flex-1 bg-black/50 justify-end">
-          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl p-6 pb-8">
+          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl px-6 pt-6" style={{ paddingBottom: Math.max(insets.bottom + 8, 32) }}>
             <HStack className="items-center justify-between mb-6">
               <Heading size="lg" className="text-gray-900">Promeni status</Heading>
               <Pressable onPress={() => setShowStatusModal(false)}>
@@ -1882,7 +1991,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       {/* Remove by Serial Modal */}
       <Modal visible={showRemoveBySerialModal} animationType="slide" transparent onRequestClose={() => setShowRemoveBySerialModal(false)}>
         <Pressable onPress={() => setShowRemoveBySerialModal(false)} className="flex-1 bg-black/50 justify-end">
-          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl p-6 pb-8">
+          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl px-6 pt-6" style={{ paddingBottom: Math.max(insets.bottom + 8, 32) }}>
             <ScrollView showsVerticalScrollIndicator={false}>
               <HStack className="items-center justify-between mb-6">
                 <Heading size="lg" className="text-gray-900">Demontiraj opremu</Heading>

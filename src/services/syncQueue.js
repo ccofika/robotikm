@@ -44,8 +44,10 @@ class SyncQueueManager {
 
   /**
    * Dodaje novu akciju u red čekanja
+   * @param {object} queueItem - Item za dodavanje u queue
+   * @param {boolean} autoProcess - Da li automatski pozvati processQueue (default: true)
    */
-  async addToQueue(queueItem) {
+  async addToQueue(queueItem, autoProcess = true) {
     try {
       const queue = await this.getQueue();
 
@@ -66,9 +68,12 @@ class SyncQueueManager {
       console.log(`[SyncQueue] Added item to queue: ${newItem.type} (${newItem.id})`);
       this.notifyListeners();
 
-      // Pokušaj odmah da proces ako je online
-      if (networkMonitor.getIsOnline()) {
+      // Pokušaj odmah da procesira ako je online i autoProcess = true
+      if (autoProcess && networkMonitor.getIsOnline()) {
+        console.log(`[SyncQueue] Auto-processing queue (autoProcess=${autoProcess})`);
         this.processQueue();
+      } else if (!autoProcess) {
+        console.log(`[SyncQueue] Skipping auto-process (autoProcess=${autoProcess})`);
       }
 
       return newItem.id;
@@ -161,6 +166,7 @@ class SyncQueueManager {
     }
 
     this.isProcessing = true;
+    console.log('[SyncQueue] Setting isProcessing = true');
 
     try {
       const queue = await this.getQueue();
@@ -171,13 +177,19 @@ class SyncQueueManager {
 
       if (pendingItems.length === 0) {
         console.log('[SyncQueue] No pending items to process');
+        this.isProcessing = false;
+        console.log('[SyncQueue] Setting isProcessing = false (no items)');
+        this.notifyListeners();
         return;
       }
 
       console.log(`[SyncQueue] Processing ${pendingItems.length} items`);
 
       // Procesira sve pending iteme redom
-      for (const item of pendingItems) {
+      for (let i = 0; i < pendingItems.length; i++) {
+        const item = pendingItems[i];
+        console.log(`[SyncQueue] Processing item ${i + 1}/${pendingItems.length}: ${item.type}`);
+
         try {
           // Proveri da li treba da čeka pre retry-a
           if (item.retryCount > 0) {
@@ -192,15 +204,17 @@ class SyncQueueManager {
 
           // Ažuriraj status na 'syncing'
           await this.updateQueueItem(item.id, { status: 'syncing' });
+          console.log(`[SyncQueue] Item ${item.id} status set to 'syncing'`);
 
-          // Procesira item (ovo će biti implementirano u syncService)
-          // Za sada samo simuliramo uspešan sync
+          // Procesira item pozivanjem syncService
+          console.log(`[SyncQueue] Calling processSyncItem for: ${item.type}`);
           const success = await this.processSyncItem(item);
+          console.log(`[SyncQueue] processSyncItem returned: ${success}`);
 
           if (success) {
             // Ukloni iz queue-a
             await this.removeFromQueue(item.id);
-            console.log(`[SyncQueue] Successfully synced: ${item.type} (${item.id})`);
+            console.log(`[SyncQueue] Successfully synced and removed: ${item.type} (${item.id})`);
           } else {
             throw new Error('Sync failed');
           }
@@ -216,23 +230,30 @@ class SyncQueueManager {
           };
 
           await this.updateQueueItem(item.id, updates);
+          console.log(`[SyncQueue] Item ${item.id} marked as ${updates.status}, retryCount: ${newRetryCount}`);
         }
       }
+
+      console.log(`[SyncQueue] Finished processing ${pendingItems.length} items`);
     } catch (error) {
       console.error('[SyncQueue] Error processing queue:', error);
     } finally {
       this.isProcessing = false;
+      console.log('[SyncQueue] Setting isProcessing = false (finally block)');
       this.notifyListeners();
+      console.log('[SyncQueue] Queue processing complete');
     }
   }
 
   /**
-   * Procesira pojedinačan sync item (placeholder - implementacija u syncService)
+   * Procesira pojedinačan sync item pozivajući syncService
+   * NAPOMENA: Ova metoda će biti override-ovana od strane syncService.setupQueueProcessor()
    */
   async processSyncItem(item) {
-    // Ovo će biti implementirano u syncService
-    // Za sada vraćamo success
     console.log(`[SyncQueue] Processing sync item: ${item.type}`);
+
+    // Placeholder - syncService će override-ovati ovu metodu
+    // Privremeno vraćamo true dok se syncService ne učita
     return true;
   }
 

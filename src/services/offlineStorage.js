@@ -41,7 +41,6 @@ class OfflineStorage {
         lastModified: Date.now()
       };
       await storage.setItem(key, data);
-      console.log(`[OfflineStorage] Saved ${workOrders.length} work orders for technician ${technicianId}`);
     } catch (error) {
       console.error('[OfflineStorage] Error saving work orders:', error);
       throw error;
@@ -113,7 +112,6 @@ class OfflineStorage {
         lastModified: Date.now()
       };
       await storage.setItem(key, data);
-      console.log(`[OfflineStorage] Saved ${equipment.length} equipment items for technician ${technicianId}`);
     } catch (error) {
       console.error('[OfflineStorage] Error saving equipment:', error);
       throw error;
@@ -147,7 +145,6 @@ class OfflineStorage {
         lastModified: Date.now()
       };
       await storage.setItem(key, data);
-      console.log(`[OfflineStorage] Saved ${materials.length} materials for technician ${technicianId}`);
     } catch (error) {
       console.error('[OfflineStorage] Error saving materials:', error);
       throw error;
@@ -181,7 +178,6 @@ class OfflineStorage {
         lastModified: Date.now()
       };
       await storage.setItem(key, data);
-      console.log(`[OfflineStorage] Saved user equipment for work order ${workOrderId}`);
     } catch (error) {
       console.error('[OfflineStorage] Error saving user equipment:', error);
       throw error;
@@ -213,7 +209,6 @@ class OfflineStorage {
         lastModified: Date.now()
       };
       await storage.setItem(key, data);
-      console.log(`[OfflineStorage] Saved removed equipment for work order ${workOrderId}`);
     } catch (error) {
       console.error('[OfflineStorage] Error saving removed equipment:', error);
       throw error;
@@ -247,7 +242,6 @@ class OfflineStorage {
         lastModified: Date.now()
       };
       await storage.setItem(key, data);
-      console.log(`[OfflineStorage] Saved ${images.length} images for work order ${workOrderId}`);
     } catch (error) {
       console.error('[OfflineStorage] Error saving work order images:', error);
       throw error;

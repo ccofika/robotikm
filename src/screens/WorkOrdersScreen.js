@@ -83,7 +83,8 @@ export default function WorkOrdersScreen({ navigation }) {
       const searchMatch = searchTerm === '' ||
         order.municipality?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         order.address?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.type?.toLowerCase().includes(searchTerm.toLowerCase());
+        order.type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.tisId?.toLowerCase().includes(searchTerm.toLowerCase());
 
       let statusMatch = true;
       if (statusFilter === 'all') {
@@ -213,12 +214,28 @@ export default function WorkOrdersScreen({ navigation }) {
                   </Text>
                 </View>
               )}
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 16 }}>
                 <Ionicons name="construct-outline" size={14} color="#9ca3af" />
                 <Text style={{ fontSize: 13, color: '#6b7280', marginLeft: 4, fontWeight: '500' }}>
                   {item.type}
                 </Text>
               </View>
+              {item.tisId && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 16 }}>
+                  <Ionicons name="finger-print-outline" size={14} color="#9ca3af" />
+                  <Text style={{ fontSize: 13, color: '#6b7280', marginLeft: 4, fontWeight: '500' }}>
+                    TIS: {item.tisId}
+                  </Text>
+                </View>
+              )}
+              {item.installationType && (
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="settings-outline" size={14} color="#9ca3af" />
+                  <Text style={{ fontSize: 13, color: '#6b7280', marginLeft: 4, fontWeight: '500' }}>
+                    {item.installationType}
+                  </Text>
+                </View>
+              )}
             </View>
 
             {/* Details */}

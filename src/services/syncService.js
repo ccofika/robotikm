@@ -38,36 +38,44 @@ class SyncService {
    */
   async processSyncItem(item) {
     try {
-      console.log(`[SyncService] Processing: ${item.type}`);
+      console.log(`[SyncService] Processing: ${item.type} (ID: ${item.id})`);
 
       let success = false;
 
       switch (item.type) {
         case 'UPDATE_WORK_ORDER':
+          console.log('[SyncService] Calling syncUpdateWorkOrder...');
           success = await this.syncUpdateWorkOrder(item);
           break;
 
         case 'UPDATE_USED_MATERIALS':
+          console.log('[SyncService] Calling syncUpdateUsedMaterials...');
           success = await this.syncUpdateUsedMaterials(item);
           break;
 
         case 'ADD_USER_EQUIPMENT':
+          console.log('[SyncService] Calling syncAddUserEquipment...');
           success = await this.syncAddUserEquipment(item);
           break;
 
         case 'REMOVE_USER_EQUIPMENT':
+          console.log('[SyncService] Calling syncRemoveUserEquipment...');
           success = await this.syncRemoveUserEquipment(item);
           break;
 
         case 'REMOVE_EQUIPMENT_BY_SERIAL':
+          console.log('[SyncService] Calling syncRemoveEquipmentBySerial...');
           success = await this.syncRemoveEquipmentBySerial(item);
           break;
 
         case 'UPLOAD_IMAGE':
+          console.log('[SyncService] Calling syncUploadImage...');
           success = await this.syncUploadImage(item);
+          console.log(`[SyncService] syncUploadImage completed: ${success}`);
           break;
 
         case 'DELETE_IMAGE':
+          console.log('[SyncService] Calling syncDeleteImage...');
           success = await this.syncDeleteImage(item);
           break;
 
@@ -78,12 +86,15 @@ class SyncService {
 
       // Obavesti listenere o uspešnoj sinhronizaciji
       if (success) {
+        console.log(`[SyncService] Successfully processed: ${item.type} (ID: ${item.id})`);
         this.notifySyncCompletion(item);
+      } else {
+        console.warn(`[SyncService] Failed to process: ${item.type} (ID: ${item.id})`);
       }
 
       return success;
     } catch (error) {
-      console.error(`[SyncService] Error processing sync item:`, error);
+      console.error(`[SyncService] Error processing sync item ${item.id}:`, error);
 
       // Proveri da li je konflikt
       if (this.isConflictError(error)) {
@@ -341,22 +352,41 @@ class SyncService {
     const { workOrderId, imageUri, technicianId } = item.data;
 
     try {
+      console.log(`[SyncService] Starting image upload for work order: ${workOrderId}`);
+      console.log(`[SyncService] Image URI: ${imageUri}`);
+
       // Kreiraj FormData za upload
       const formData = new FormData();
 
       // Determine file type
       let fileType = 'image/jpeg';
-      if (imageUri.endsWith('.png')) fileType = 'image/png';
-      else if (imageUri.endsWith('.jpg') || imageUri.endsWith('.jpeg')) fileType = 'image/jpeg';
+      let extension = 'jpg';
+      if (imageUri.endsWith('.png')) {
+        fileType = 'image/png';
+        extension = 'png';
+      } else if (imageUri.endsWith('.jpg') || imageUri.endsWith('.jpeg')) {
+        fileType = 'image/jpeg';
+        extension = 'jpg';
+      }
+
+      // Generiši UNIQUE ime sa timestamp + random string da izbegnemo race condition
+      const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      const fileName = `photo_${uniqueId}.${extension}`;
+
+      console.log(`[SyncService] Image file name: ${fileName}`);
+      console.log(`[SyncService] Image file type: ${fileType}`);
 
       formData.append('image', {
         uri: imageUri,
-        name: `photo_${Date.now()}.jpg`,
+        name: fileName,
         type: fileType
       });
 
       formData.append('technicianId', technicianId);
 
+      console.log(`[SyncService] FormData prepared - starting POST request`);
+
+      console.log('[SyncService] Uploading image to server...');
       // Upload
       await api.post(
         `/api/workorders/${workOrderId}/images`,
@@ -369,19 +399,24 @@ class SyncService {
         }
       );
 
+      console.log('[SyncService] Image uploaded successfully to server');
+
       // VAŽNO: Nakon uspešnog upload-a, refresh work order sa servera
       // da bi dobili ažuriranu listu slika
       try {
+        console.log('[SyncService] Refreshing work order from server...');
         const workOrderResponse = await workOrdersAPI.getOne(workOrderId);
         const serverWorkOrder = workOrderResponse.data;
 
-        console.log('[SyncService] Refreshing local work order with updated images:', serverWorkOrder.images);
+        console.log('[SyncService] Refreshing local work order with updated images:', serverWorkOrder.images?.length || 0, 'images');
 
         // Ažuriraj work order u offline storage sa novim slikama
         await offlineStorage.updateWorkOrder(technicianId, workOrderId, {
           images: serverWorkOrder.images,
           _synced: true
         });
+
+        console.log('[SyncService] Local work order updated with server data');
       } catch (refreshError) {
         console.error('[SyncService] Error refreshing work order after image upload:', refreshError);
         // Ne fail-uj sync ako refresh ne uspe
@@ -391,6 +426,7 @@ class SyncService {
       return true;
     } catch (error) {
       console.error('[SyncService] Error syncing image upload:', error);
+      console.error('[SyncService] Error details:', error.message);
       throw error;
     }
   }
