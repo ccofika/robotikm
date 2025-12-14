@@ -2,7 +2,7 @@
   "expo": {
     "name": "Robotik Mobile",
     "slug": "robotikm",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "assetBundlePatterns": [
@@ -14,13 +14,17 @@
     },
     "android": {
       "package": "com.robotik.mobile",
-      "versionCode": 2,
+      "versionCode": 6,
       "useNextNotificationsApi": true,
       "permissions": [
         "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "WAKE_LOCK"
+        "WAKE_LOCK",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_AUDIO",
+        "MANAGE_EXTERNAL_STORAGE"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#9333ea"

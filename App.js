@@ -14,6 +14,8 @@ import OverdueWorkOrdersScreen from './src/screens/OverdueWorkOrdersScreen';
 import { NetworkStatusBanner, ConflictResolutionModal, SyncErrorModal } from './src/components/offline';
 import UpdateNotification from './src/components/UpdateNotification';
 import apkUpdateService from './src/services/apkUpdateService';
+import ACRPhoneRecordingWatcher from './src/services/ACRPhoneRecordingWatcher';
+import NetInfo from '@react-native-community/netinfo';
 
 // VAŽNO: Registruj background notification task PRE inicijalizacije app-a
 // Ovo omogućava procesiranje notifikacija kada je app zatvoren ili u background-u
@@ -59,6 +61,40 @@ function AppContent() {
       apkUpdateService.stopAutoUpdateCheck();
     };
   }, []);
+
+  // ACR Phone Recording Watcher - inicijalizacija nakon login-a
+  useEffect(() => {
+    const initializeWatcher = async () => {
+      if (user && user.phoneNumber) {
+        console.log('[App] User logged in:', user.name);
+        console.log('[App] User phone number:', user.phoneNumber);
+        console.log('[App] Initializing ACR Phone Recording Watcher...');
+
+        await ACRPhoneRecordingWatcher.initialize(user.phoneNumber);
+
+        // Setup network listener za offline queue sync
+        const unsubscribeNetInfo = NetInfo.addEventListener(state => {
+          if (state.isConnected && state.isInternetReachable) {
+            console.log('[App] Network connected, syncing offline recordings queue');
+            ACRPhoneRecordingWatcher.syncOfflineQueue();
+          }
+        });
+
+        return () => {
+          console.log('[App] Stopping ACR Watcher');
+          ACRPhoneRecordingWatcher.stopWatching();
+          unsubscribeNetInfo();
+        };
+      } else {
+        console.log('[App] Cannot initialize ACR Watcher - user or phoneNumber missing');
+        console.log('[App] User:', user);
+        console.log('[App] Phone number:', user?.phoneNumber);
+        ACRPhoneRecordingWatcher.stopWatching();
+      }
+    };
+
+    initializeWatcher();
+  }, [user]);
 
   // Provera pending opreme i overdue naloga nakon login-a
   useEffect(() => {
