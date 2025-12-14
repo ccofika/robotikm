@@ -3,7 +3,7 @@
 
 
 import React, { useState, useEffect, useContext } from 'react';
-import { View, ScrollView, Pressable, Alert, Image, Linking, Platform, Modal, FlatList, ActivityIndicator } from 'react-native';
+import { View, ScrollView, Pressable, Alert, Image, Linking, Platform, Modal, FlatList, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -24,6 +24,28 @@ import { Center } from '../components/ui/center';
 import { Spinner } from '../components/ui/spinner';
 import { Input, InputField } from '../components/ui/input';
 import { Button, ButtonText, ButtonSpinner } from '../components/ui/button';
+
+// Equipment categories for dismount dropdown
+const EQUIPMENT_CATEGORIES = [
+  'STB',
+  'Cam Modul',
+  'Hybrid',
+  'OTT tv po tvom',
+  'Smart Card',
+  'HFC Modem',
+  'GPON Modem',
+  'ATV',
+  'PON',
+  'M-Cam Modul',
+  'M-Smart Card',
+  'M-HFC Modem',
+  'M-GPON Modem',
+  'M-ATV',
+  'M-STB',
+  'M-OTT tv po tvom',
+  'M-Hybrid',
+  'M-PON',
+];
 
 export default function WorkOrderDetailScreen({ route, navigation }) {
   const { orderId } = route.params;
@@ -76,6 +98,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   const [removalEquipmentName, setRemovalEquipmentName] = useState('');
   const [removalEquipmentDescription, setRemovalEquipmentDescription] = useState('');
   const [removalSerialNumber, setRemovalSerialNumber] = useState('');
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
 
   // Image upload states
   const [uploadingImages, setUploadingImages] = useState(false);
@@ -469,6 +492,46 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleUndoRemoval = async (serialNumber) => {
+    Alert.alert(
+      'Potvrda',
+      'Da li ste sigurni da želite da poništite demontažu ove opreme?',
+      [
+        { text: 'Odustani', style: 'cancel' },
+        {
+          text: 'Potvrdi',
+          style: 'destructive',
+          onPress: async () => {
+            setSaving(true);
+            try {
+              const response = await userEquipmentAPI.undoRemoval(orderId, serialNumber, user._id);
+
+              // Instant UI update - ukloni opremu iz lokalnog state-a
+              setRemovedEquipment(prev => prev.filter(eq => eq.serialNumber?.toLowerCase() !== serialNumber?.toLowerCase()));
+
+              const actionMessage = response.data.action === 'deleted'
+                ? 'Oprema je obrisana iz sistema'
+                : response.data.action === 'restored'
+                ? 'Oprema je vraćena korisniku'
+                : 'Oprema je uklonjena iz evidencije';
+
+              Alert.alert('Uspešno', actionMessage);
+
+              // Background refresh za sinhronizaciju sa serverom
+              fetchWorkOrder();
+            } catch (error) {
+              console.error('Greška pri poništavanju demontaže:', error);
+              const errorMessage = error.response?.data?.error || error.message || 'Neuspešno poništavanje demontaže';
+              Alert.alert('Greška', errorMessage);
+            } finally {
+              setSaving(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleAddMaterial = async () => {
@@ -1081,7 +1144,10 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
               </View>
               <View style={{ flexDirection: 'row' }}>
                 <Pressable
-                  onPress={() => setShowRemoveBySerialModal(true)}
+                  onPress={() => {
+                    setShowCategoryDropdown(false);
+                    setShowRemoveBySerialModal(true);
+                  }}
                   style={{
                     backgroundColor: '#fef2f2',
                     borderRadius: 10,
@@ -1219,19 +1285,37 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                       <Text style={{ fontSize: 14, fontWeight: '600', color: '#111827', flex: 1 }}>
                         {equipmentName}
                       </Text>
-                      <View style={{
-                        backgroundColor: eq.condition === 'neispravna' ? '#fee2e2' : '#d1fae5',
-                        paddingHorizontal: 10,
-                        paddingVertical: 4,
-                        borderRadius: 8,
-                      }}>
-                        <Text style={{
-                          fontSize: 11,
-                          fontWeight: '700',
-                          color: eq.condition === 'neispravna' ? '#dc2626' : '#059669',
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{
+                          backgroundColor: eq.condition === 'neispravna' ? '#fee2e2' : '#d1fae5',
+                          paddingHorizontal: 10,
+                          paddingVertical: 4,
+                          borderRadius: 8,
+                          marginRight: !isCompleted ? 8 : 0,
                         }}>
-                          {eq.condition === 'neispravna' ? 'Neispravna' : 'Ispravna'}
-                        </Text>
+                          <Text style={{
+                            fontSize: 11,
+                            fontWeight: '700',
+                            color: eq.condition === 'neispravna' ? '#dc2626' : '#059669',
+                          }}>
+                            {eq.condition === 'neispravna' ? 'Neispravna' : 'Ispravna'}
+                          </Text>
+                        </View>
+                        {!isCompleted && (
+                          <Pressable
+                            onPress={() => handleUndoRemoval(eq.serialNumber)}
+                            disabled={saving}
+                            style={{
+                              backgroundColor: '#fef2f2',
+                              paddingHorizontal: 8,
+                              paddingVertical: 4,
+                              borderRadius: 8,
+                              opacity: saving ? 0.5 : 1,
+                            }}
+                          >
+                            <Ionicons name="close-circle" size={18} color="#dc2626" />
+                          </Pressable>
+                        )}
                       </View>
                     </View>
                     <Text style={{ fontSize: 12, color: '#6b7280', fontWeight: '500', marginBottom: 2 }}>
@@ -1989,70 +2073,131 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       </Modal>
 
       {/* Remove by Serial Modal */}
-      <Modal visible={showRemoveBySerialModal} animationType="slide" transparent onRequestClose={() => setShowRemoveBySerialModal(false)}>
-        <Pressable onPress={() => setShowRemoveBySerialModal(false)} className="flex-1 bg-black/50 justify-end">
-          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl px-6 pt-6" style={{ paddingBottom: Math.max(insets.bottom + 8, 32) }}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <HStack className="items-center justify-between mb-6">
-                <Heading size="lg" className="text-gray-900">Demontiraj opremu</Heading>
-                <Pressable onPress={() => setShowRemoveBySerialModal(false)}>
-                  <Ionicons name="close" size={28} color="#9ca3af" />
-                </Pressable>
-              </HStack>
-              <VStack space="md">
-                <VStack space="xs">
-                  <Text size="sm" bold className="text-gray-700">Naziv opreme</Text>
-                  <Input variant="outline" size="lg" className="bg-gray-50">
-                    <InputField
-                      placeholder="Unesite naziv opreme..."
-                      value={removalEquipmentName}
-                      onChangeText={setRemovalEquipmentName}
-                    />
-                  </Input>
-                </VStack>
+      <Modal visible={showRemoveBySerialModal} animationType="slide" transparent onRequestClose={() => { setShowRemoveBySerialModal(false); setShowCategoryDropdown(false); }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <Pressable onPress={() => { setShowRemoveBySerialModal(false); setShowCategoryDropdown(false); }} className="flex-1 bg-black/50 justify-end">
+            <Pressable onPress={(e) => { e.stopPropagation(); setShowCategoryDropdown(false); }} className="bg-white rounded-t-3xl px-6 pt-6" style={{ paddingBottom: Math.max(insets.bottom + 8, 32), maxHeight: '80%' }}>
+              <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <HStack className="items-center justify-between mb-6">
+                  <Heading size="lg" className="text-gray-900">Demontiraj opremu</Heading>
+                  <Pressable onPress={() => { setShowRemoveBySerialModal(false); setShowCategoryDropdown(false); }}>
+                    <Ionicons name="close" size={28} color="#9ca3af" />
+                  </Pressable>
+                </HStack>
+                <VStack space="md">
+                  {/* Category Dropdown */}
+                  <VStack space="xs">
+                    <Text size="sm" bold className="text-gray-700">Kategorija opreme</Text>
+                    <Pressable
+                      onPress={() => setShowCategoryDropdown(!showCategoryDropdown)}
+                      style={{
+                        backgroundColor: '#f9fafb',
+                        borderWidth: 1,
+                        borderColor: '#e2e8f0',
+                        borderRadius: 8,
+                        paddingHorizontal: 12,
+                        paddingVertical: 14,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <Text style={{ color: removalEquipmentName ? '#111827' : '#9ca3af', fontSize: 16 }}>
+                        {removalEquipmentName || 'Izaberite kategoriju'}
+                      </Text>
+                      <Ionicons name={showCategoryDropdown ? 'chevron-up' : 'chevron-down'} size={20} color="#6b7280" />
+                    </Pressable>
 
-                <VStack space="xs">
-                  <Text size="sm" bold className="text-gray-700">Opis opreme</Text>
-                  <Input variant="outline" size="lg" className="bg-gray-50">
-                    <InputField
-                      placeholder="Unesite opis opreme..."
-                      value={removalEquipmentDescription}
-                      onChangeText={setRemovalEquipmentDescription}
-                    />
-                  </Input>
-                </VStack>
+                    {showCategoryDropdown && (
+                      <View style={{
+                        backgroundColor: '#ffffff',
+                        borderWidth: 1,
+                        borderColor: '#e2e8f0',
+                        borderRadius: 8,
+                        marginTop: 4,
+                        maxHeight: 200,
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 4,
+                        elevation: 3,
+                      }}>
+                        <ScrollView nestedScrollEnabled showsVerticalScrollIndicator={true}>
+                          {EQUIPMENT_CATEGORIES.map((category, index) => (
+                            <Pressable
+                              key={category}
+                              onPress={() => {
+                                setRemovalEquipmentName(category);
+                                setShowCategoryDropdown(false);
+                              }}
+                              style={{
+                                paddingHorizontal: 12,
+                                paddingVertical: 12,
+                                borderBottomWidth: index < EQUIPMENT_CATEGORIES.length - 1 ? 1 : 0,
+                                borderBottomColor: '#f3f4f6',
+                                backgroundColor: removalEquipmentName === category ? '#eff6ff' : '#ffffff',
+                              }}
+                            >
+                              <Text style={{
+                                fontSize: 15,
+                                color: removalEquipmentName === category ? '#2563eb' : '#374151',
+                                fontWeight: removalEquipmentName === category ? '600' : '400',
+                              }}>
+                                {category}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </VStack>
 
-                <VStack space="xs">
-                  <Text size="sm" bold className="text-gray-700">Serijski broj</Text>
-                  <Input variant="outline" size="lg" className="bg-gray-50">
-                    <InputField
-                      placeholder="Unesite serijski broj..."
-                      value={removalSerialNumber}
-                      onChangeText={setRemovalSerialNumber}
-                    />
-                  </Input>
-                </VStack>
+                  <VStack space="xs">
+                    <Text size="sm" bold className="text-gray-700">Opis opreme</Text>
+                    <Input variant="outline" size="lg" className="bg-gray-50">
+                      <InputField
+                        placeholder="Unesite opis opreme..."
+                        value={removalEquipmentDescription}
+                        onChangeText={setRemovalEquipmentDescription}
+                      />
+                    </Input>
+                  </VStack>
 
-                <Button
-                  action="negative"
-                  size="lg"
-                  onPress={handleRemoveBySerial}
-                  className="mt-4 rounded-2xl py-4"
-                  isDisabled={saving || !removalEquipmentName.trim() || !removalEquipmentDescription.trim() || !removalSerialNumber.trim()}
-                >
-                  {saving ? (
-                    <ButtonSpinner />
-                  ) : (
-                    <HStack space="sm" className="items-center">
-                      <Ionicons name="build" size={20} color="#fff" />
-                      <ButtonText>Demontiraj opremu</ButtonText>
-                    </HStack>
-                  )}
-                </Button>
-              </VStack>
-            </ScrollView>
+                  <VStack space="xs">
+                    <Text size="sm" bold className="text-gray-700">Serijski broj</Text>
+                    <Input variant="outline" size="lg" className="bg-gray-50">
+                      <InputField
+                        placeholder="Unesite serijski broj..."
+                        value={removalSerialNumber}
+                        onChangeText={setRemovalSerialNumber}
+                      />
+                    </Input>
+                  </VStack>
+
+                  <Button
+                    action="negative"
+                    size="lg"
+                    onPress={handleRemoveBySerial}
+                    className="mt-4 rounded-2xl py-4"
+                    isDisabled={saving || !removalEquipmentName.trim() || !removalEquipmentDescription.trim() || !removalSerialNumber.trim()}
+                  >
+                    {saving ? (
+                      <ButtonSpinner />
+                    ) : (
+                      <HStack space="sm" className="items-center">
+                        <Ionicons name="build" size={20} color="#fff" />
+                        <ButtonText>Demontiraj opremu</ButtonText>
+                      </HStack>
+                    )}
+                  </Button>
+                </VStack>
+              </ScrollView>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Postpone Modal */}

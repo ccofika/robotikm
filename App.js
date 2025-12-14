@@ -14,14 +14,23 @@ import OverdueWorkOrdersScreen from './src/screens/OverdueWorkOrdersScreen';
 import { NetworkStatusBanner, ConflictResolutionModal, SyncErrorModal } from './src/components/offline';
 import UpdateNotification from './src/components/UpdateNotification';
 import apkUpdateService from './src/services/apkUpdateService';
-import ACRPhoneRecordingWatcher from './src/services/ACRPhoneRecordingWatcher';
+import Constants from 'expo-constants';
 import NetInfo from '@react-native-community/netinfo';
+
+// Proveri da li app radi u Expo Go (tada react-native-fs ne radi)
+const isExpoGo = Constants.appOwnership === 'expo';
+
+// Dinamički učitaj ACRPhoneRecordingWatcher samo ako NIJE Expo Go
+let ACRPhoneRecordingWatcher = null;
+if (!isExpoGo) {
+  ACRPhoneRecordingWatcher = require('./src/services/ACRPhoneRecordingWatcher').default;
+}
 
 // VAŽNO: Registruj background notification task PRE inicijalizacije app-a
 // Ovo omogućava procesiranje notifikacija kada je app zatvoren ili u background-u
 import './src/services/backgroundTasks';
 // KRITIČNO: Importuj setupNotificationChannels funkciju
-import { setupNotificationChannels } from './src/services/notificationService';
+import notificationService, { setupNotificationChannels } from './src/services/notificationService';
 
 // Import debugging utilities (samo u dev modu)
 if (__DEV__) {
@@ -63,7 +72,14 @@ function AppContent() {
   }, []);
 
   // ACR Phone Recording Watcher - inicijalizacija nakon login-a
+  // NAPOMENA: Radi samo u development/production buildu, NE u Expo Go
   useEffect(() => {
+    // Preskoči ako smo u Expo Go (react-native-fs ne radi tamo)
+    if (isExpoGo || !ACRPhoneRecordingWatcher) {
+      console.log('[App] ACR Watcher skipped - running in Expo Go');
+      return;
+    }
+
     const initializeWatcher = async () => {
       if (user && user.phoneNumber) {
         console.log('[App] User logged in:', user.name);
@@ -95,6 +111,33 @@ function AppContent() {
 
     initializeWatcher();
   }, [user]);
+
+  // Setup notification listener za sync_recordings push notifikaciju
+  // Kada admin klikne "Sync snimke" na webu, svi tehničari dobijaju notifikaciju
+  useEffect(() => {
+    if (isExpoGo || !ACRPhoneRecordingWatcher) return;
+
+    // Handler za sync_recordings notifikaciju
+    const handleSyncNotification = (notification) => {
+      const data = notification?.request?.content?.data;
+      if (data?.type === 'sync_recordings' && data?.action === 'trigger_sync') {
+        console.log('[App] 📥 Received sync_recordings notification - triggering manual sync');
+        ACRPhoneRecordingWatcher.manualSync().then(result => {
+          console.log('[App] Manual sync result:', result);
+        });
+      }
+    };
+
+    // Postavi listener
+    notificationService.setupNotificationListeners(
+      handleSyncNotification, // onNotificationReceived
+      handleSyncNotification  // onNotificationTapped
+    );
+
+    return () => {
+      notificationService.removeNotificationListeners();
+    };
+  }, []);
 
   // Provera pending opreme i overdue naloga nakon login-a
   useEffect(() => {

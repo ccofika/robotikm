@@ -2,7 +2,7 @@ import axios from 'axios';
 import { storage } from '../utils/storage';
 
 // API URL - online backend
-const API_URL = 'https://robotikb-3eov.onrender.com';
+export const API_URL = 'https://robotikb-3eov.onrender.com';
 
 // Kreiraj axios instancu
 const api = axios.create({
@@ -150,6 +150,7 @@ export const userEquipmentAPI = {
   add: (data) => api.post('/api/user-equipment', data),
   remove: (id, data) => api.put(`/api/user-equipment/${id}/remove`, data),
   removeBySerial: (data) => api.post('/api/user-equipment/remove-by-serial', data),
+  undoRemoval: (workOrderId, serialNumber, technicianId) => api.post(`/api/user-equipment/workorder/${workOrderId}/undo-removal`, { serialNumber, technicianId }),
 };
 
 // Notifications API
