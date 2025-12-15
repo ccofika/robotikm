@@ -9,7 +9,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
-import { authAPI } from '../services/api';
+import { authAPI, notificationsAPI } from '../services/api';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { VStack } from '../components/ui/vstack';
 import { HStack } from '../components/ui/hstack';
 import { Box } from '../components/ui/box';
@@ -28,6 +31,58 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
+
+  // Registracija push tokena odmah nakon uspešnog logina
+  const registerPushToken = async () => {
+    try {
+      console.log('=== REGISTERING PUSH TOKEN (LoginScreen) ===');
+
+      // Provera uslova
+      if (!Device.isDevice) {
+        console.log('Push skip: Not a physical device');
+        return;
+      }
+
+      const isExpoGo = Constants.appOwnership === 'expo';
+      if (isExpoGo) {
+        console.log('Push skip: Running in Expo Go');
+        return;
+      }
+
+      // Proveri dozvolu
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+
+      if (existingStatus !== 'granted') {
+        console.log('Requesting notification permission...');
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+
+      if (finalStatus !== 'granted') {
+        console.log('Push skip: Permission not granted');
+        return;
+      }
+
+      // Dobij token
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      console.log('Getting push token with projectId:', projectId);
+
+      const tokenData = await Notifications.getExpoPushTokenAsync(
+        projectId ? { projectId } : {}
+      );
+
+      console.log('Push token obtained:', tokenData.data);
+
+      // Pošalji na backend
+      const response = await notificationsAPI.registerToken(tokenData.data);
+      console.log('Push token registered on backend:', response.data);
+
+    } catch (error) {
+      console.error('Push token registration error:', error);
+      // Ne prikazuj grešku korisniku - nije kritično
+    }
+  };
 
   const handleLogin = async () => {
     const newErrors = {};
@@ -59,7 +114,12 @@ export default function LoginScreen() {
         return;
       }
 
+      // Sačuvaj korisnika
       await login(user, token);
+
+      // Registruj push token ODMAH nakon uspešnog logina
+      registerPushToken();
+
       Alert.alert('Uspešno', 'Dobrodošli!');
     } catch (error) {
       console.error('Login greška:', error);

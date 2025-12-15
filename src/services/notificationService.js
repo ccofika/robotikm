@@ -92,6 +92,11 @@ class NotificationService {
    */
   async registerForPushNotifications() {
     try {
+      console.log('=== REGISTER FOR PUSH NOTIFICATIONS START ===');
+      console.log('Device.isDevice:', Device.isDevice);
+      console.log('Constants.appOwnership:', Constants.appOwnership);
+      console.log('Platform.OS:', Platform.OS);
+
       // Proveri da li je fizički uređaj (emulator ne podržava push notifikacije)
       if (!Device.isDevice) {
         console.log('⚠️ Push notifikacije ne rade na emulatoru');
@@ -100,6 +105,7 @@ class NotificationService {
 
       // Proveri da li je Expo Go ili standalone build
       const isExpoGo = Constants.appOwnership === 'expo';
+      console.log('isExpoGo:', isExpoGo);
 
       if (isExpoGo) {
         console.log('⚠️ Push notifikacije se preskačuju u Expo Go - biće aktivne u APK buildu');
@@ -107,13 +113,14 @@ class NotificationService {
       }
 
       // Kreiraj sve notification kanale za Android
-      // NAPOMENA: Channels bi trebalo da su već kreirani pri pokretanju app-a u App.js,
-      // ali ponovo ih kreiramo ovde kao sigurnosnu meru (idempotent operacija)
+      console.log('Setting up notification channels...');
       await setupNotificationChannels();
+      console.log('Notification channels setup complete');
 
       // Zatraži dozvolu od korisnika
-      // Za Android 13+ (API level 33+), POST_NOTIFICATIONS permisija je obavezna
+      console.log('Checking notification permissions...');
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      console.log('Existing permission status:', existingStatus);
       let finalStatus = existingStatus;
 
       if (existingStatus !== 'granted') {
@@ -125,48 +132,56 @@ class NotificationService {
             allowSound: true,
           },
           android: {
-            // Android 13+ zahteva eksplicitno traženje POST_NOTIFICATIONS permisije
             allowAlert: true,
             allowBadge: true,
             allowSound: true,
           },
         });
         finalStatus = status;
+        console.log('New permission status:', finalStatus);
       }
 
       if (finalStatus !== 'granted') {
-        console.log('⚠️ Korisnik nije dozvolio notifikacije');
+        console.log('⚠️ Korisnik nije dozvolio notifikacije - status:', finalStatus);
         return null;
       }
 
       console.log('✅ Dozvola za notifikacije odobrena');
 
-      // Dobij Expo push token - za standalone build automatski će koristiti projectId iz app.json
+      // Dobij Expo push token
       const tokenOptions = {};
-
-      // Pokušaj da dobije projectId iz config-a ako postoji
       const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+      console.log('ProjectId from config:', projectId);
+
       if (projectId) {
         tokenOptions.projectId = projectId;
       }
 
+      console.log('Getting Expo push token with options:', tokenOptions);
       const token = await Notifications.getExpoPushTokenAsync(tokenOptions);
-
       console.log('✅ Push token dobijen:', token.data);
 
       // Pošalji token na backend
+      console.log('Sending token to backend...');
       try {
-        await api.post('/api/android-notifications/register-token', {
+        const response = await api.post('/api/android-notifications/register-token', {
           pushToken: token.data,
         });
         console.log('✅ Token uspešno registrovan na backend');
+        console.log('Backend response:', response.data);
       } catch (error) {
         console.error('❌ Greška pri slanju tokena na backend:', error);
+        console.error('Error response:', error.response?.data);
+        console.error('Error status:', error.response?.status);
       }
 
+      console.log('=== REGISTER FOR PUSH NOTIFICATIONS END ===');
       return token.data;
     } catch (error) {
-      console.error('❌ Greška pri registraciji push notifikacija:', error);
+      console.error('=== REGISTER PUSH NOTIFICATIONS ERROR ===');
+      console.error('Error name:', error.name);
+      console.error('Error message:', error.message);
+      console.error('Error stack:', error.stack);
       return null;
     }
   }
