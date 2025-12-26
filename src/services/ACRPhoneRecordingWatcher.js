@@ -1,7 +1,9 @@
 import { PermissionsAndroid, Platform, Linking, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system';
 import { API_URL } from './api';
+import SAFStorageService from './SAFStorageService';
 
 // Proveri da li app radi u Expo Go
 const isExpoGo = Constants.appOwnership === 'expo';
@@ -16,6 +18,10 @@ if (!isExpoGo) {
   }
 }
 
+// Proveri Android verziju - SAF je potreban za Android 11+ (API 30+)
+const ANDROID_API_LEVEL = Platform.Version;
+const USE_SAF = Platform.OS === 'android' && ANDROID_API_LEVEL >= 30;
+
 class ACRPhoneRecordingWatcher {
   constructor() {
     // ACR Phone folder struktura
@@ -25,8 +31,10 @@ class ACRPhoneRecordingWatcher {
     this.watchInterval = null;
     this.scheduledInterval = null;
     this.technicianPhone = null;
-    this.isAvailable = !isExpoGo && RNFS !== null;
+    this.isAvailable = !isExpoGo && (RNFS !== null || USE_SAF);
     this.lastScheduledCheck = null;
+    this.useSAF = USE_SAF; // Flag za koriscenje SAF na Android 11+
+    this.safInitialized = false;
   }
 
   async initialize(technicianPhoneNumber) {
@@ -38,6 +46,8 @@ class ACRPhoneRecordingWatcher {
 
     console.log('[ACR Watcher] ====================================');
     console.log('[ACR Watcher] Initializing with technician phone:', technicianPhoneNumber);
+    console.log('[ACR Watcher] Android API Level:', ANDROID_API_LEVEL);
+    console.log('[ACR Watcher] Using SAF:', this.useSAF);
 
     if (!technicianPhoneNumber) {
       console.warn('[ACR Watcher] No technician phone number provided, watcher will not start');
@@ -46,15 +56,97 @@ class ACRPhoneRecordingWatcher {
 
     this.technicianPhone = technicianPhoneNumber;
 
-    const hasPermissions = await this.requestPermissions();
-    if (!hasPermissions) {
-      console.error('[ACR Watcher] Required permissions not granted');
-      return;
+    // Za Android 11+ (API 30+) koristi SAF
+    if (this.useSAF) {
+      const safReady = await this.initializeSAF();
+      if (!safReady) {
+        console.log('[ACR Watcher] SAF not ready, will prompt user for folder access');
+        // Ne blokiraj - korisnik može kasnije omogućiti pristup
+      }
+    } else {
+      // Za starije verzije koristi RNFS
+      const hasPermissions = await this.requestPermissions();
+      if (!hasPermissions) {
+        console.error('[ACR Watcher] Required permissions not granted');
+        return;
+      }
     }
 
     await this.loadProcessedFiles();
     await this.startWatching();
     this.startScheduledChecks();
+  }
+
+  /**
+   * Inicijalizuj SAF za Android 11+
+   */
+  async initializeSAF() {
+    try {
+      console.log('[ACR Watcher] Initializing SAF...');
+      const initialized = await SAFStorageService.initialize();
+
+      if (initialized) {
+        this.safInitialized = true;
+        console.log('[ACR Watcher] ✅ SAF initialized successfully');
+        return true;
+      }
+
+      // SAF nije inicijalizovan - proveri da li je setup ikada završen
+      const setupCompleted = await SAFStorageService.isSetupCompleted();
+      if (!setupCompleted) {
+        console.log('[ACR Watcher] SAF setup never completed, will prompt user');
+      } else {
+        console.log('[ACR Watcher] SAF setup was completed but permission expired');
+      }
+
+      return false;
+    } catch (error) {
+      console.error('[ACR Watcher] SAF initialization error:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Zatraži od korisnika da izabere ACRPhone folder (za SAF)
+   * Ovo se poziva iz UI kada korisnik želi da omogući sync
+   */
+  async requestSAFFolderAccess() {
+    if (!this.useSAF) {
+      console.log('[ACR Watcher] SAF not needed for this Android version');
+      return true;
+    }
+
+    try {
+      const uri = await SAFStorageService.requestFolderAccess();
+      if (uri) {
+        this.safInitialized = true;
+        console.log('[ACR Watcher] ✅ SAF folder access granted');
+
+        // Odmah skeniraj za snimke
+        await this.scanForNewRecordings();
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('[ACR Watcher] requestSAFFolderAccess error:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Proveri da li je SAF pristup potreban i da li je omogućen
+   */
+  async checkSAFStatus() {
+    if (!this.useSAF) {
+      return { required: false, enabled: true };
+    }
+
+    const status = SAFStorageService.getStatus();
+    return {
+      required: true,
+      enabled: status.isInitialized,
+      hasUri: status.hasUri
+    };
   }
 
   async requestPermissions() {
@@ -190,25 +282,38 @@ class ACRPhoneRecordingWatcher {
       return;
     }
 
-    console.log('[ACR Watcher] Starting to watch:', this.basePath);
+    console.log('[ACR Watcher] Starting to watch...');
+    console.log('[ACR Watcher] Using SAF:', this.useSAF);
 
-    // Check if base folder exists
-    try {
-      const exists = await RNFS.exists(this.basePath);
-      console.log('[ACR Watcher] ACR Phone folder exists:', exists);
+    // Za SAF, proveri da li je inicijalizovan
+    if (this.useSAF) {
+      if (!this.safInitialized) {
+        console.log('[ACR Watcher] SAF not initialized, waiting for user to grant access');
+        // Nastavi svejedno - možda korisnik odobri kasnije
+      } else {
+        console.log('[ACR Watcher] SAF initialized, ready to scan');
+      }
+    } else {
+      // Za RNFS, proveri folder
+      console.log('[ACR Watcher] Using RNFS, base path:', this.basePath);
 
-      if (!exists) {
-        console.error('[ACR Watcher] ❌ ACR Phone folder does not exist!');
-        console.error('[ACR Watcher] Expected path:', this.basePath);
-        console.error('[ACR Watcher] Please check:');
-        console.error('[ACR Watcher] 1. Is ACR Phone app installed and configured?');
-        console.error('[ACR Watcher] 2. Has ACR Phone recorded at least one call?');
-        console.error('[ACR Watcher] 3. Are storage permissions granted?');
+      try {
+        const exists = await RNFS.exists(this.basePath);
+        console.log('[ACR Watcher] ACR Phone folder exists:', exists);
+
+        if (!exists) {
+          console.error('[ACR Watcher] ❌ ACR Phone folder does not exist!');
+          console.error('[ACR Watcher] Expected path:', this.basePath);
+          console.error('[ACR Watcher] Please check:');
+          console.error('[ACR Watcher] 1. Is ACR Phone app installed and configured?');
+          console.error('[ACR Watcher] 2. Has ACR Phone recorded at least one call?');
+          console.error('[ACR Watcher] 3. Are storage permissions granted?');
+          return;
+        }
+      } catch (error) {
+        console.error('[ACR Watcher] Error checking folder existence:', error);
         return;
       }
-    } catch (error) {
-      console.error('[ACR Watcher] Error checking folder existence:', error);
-      return;
     }
 
     this.isWatching = true;
@@ -274,6 +379,19 @@ class ACRPhoneRecordingWatcher {
       return { success: false, message: 'Not available in Expo Go' };
     }
 
+    // Za SAF, proveri da li je inicijalizovan
+    if (this.useSAF && !this.safInitialized) {
+      console.log('[ACR Watcher] SAF not initialized, requesting folder access...');
+      const granted = await this.requestSAFFolderAccess();
+      if (!granted) {
+        return {
+          success: false,
+          message: 'SAF folder access not granted',
+          needsSAFSetup: true
+        };
+      }
+    }
+
     try {
       const results = await this.scanForNewRecordings();
       await this.syncOfflineQueue();
@@ -296,12 +414,24 @@ class ACRPhoneRecordingWatcher {
   async scanForNewRecordings() {
     console.log('[ACR Watcher] 🔍 Starting scan...');
     console.log('[ACR Watcher] Time:', new Date().toISOString());
+    console.log('[ACR Watcher] Using SAF:', this.useSAF);
 
     let scannedFiles = 0;
     let newFiles = 0;
     let skippedFiles = 0;
 
     try {
+      // Za Android 11+ koristi SAF
+      if (this.useSAF) {
+        if (!this.safInitialized) {
+          console.log('[ACR Watcher] SAF not initialized, skipping scan');
+          return { scannedFiles: 0, newFiles: 0, skippedFiles: 0, safNotReady: true };
+        }
+
+        return await this.scanWithSAF();
+      }
+
+      // Za starije verzije koristi RNFS
       const exists = await RNFS.exists(this.basePath);
       if (!exists) {
         console.log('[ACR Watcher] Base folder does not exist yet:', this.basePath);
@@ -334,6 +464,116 @@ class ACRPhoneRecordingWatcher {
     } catch (error) {
       console.error('[ACR Watcher] ❌ Error scanning:', error);
       return { scannedFiles, newFiles, skippedFiles, error: error.message };
+    }
+  }
+
+  /**
+   * Skeniranje koristeći SAF za Android 11+
+   */
+  async scanWithSAF() {
+    console.log('[ACR Watcher] 📱 Using SAF for scanning...');
+
+    let scannedFiles = 0;
+    let newFiles = 0;
+    let skippedFiles = 0;
+
+    try {
+      // Skeniraj za snimke u poslednjih 2 dana
+      const recordings = await SAFStorageService.scanForRecordings(2);
+
+      console.log('[ACR Watcher] SAF found', recordings.length, 'recordings');
+
+      for (const recording of recordings) {
+        scannedFiles++;
+
+        // Generiši jedinstveni ID
+        const fileUniqueId = `${recording.customerPhone}/${recording.fileName}`;
+
+        // Proveri da li je već obrađen
+        if (this.processedFiles.has(fileUniqueId)) {
+          skippedFiles++;
+          continue;
+        }
+
+        console.log('[ACR Watcher] 🆕 New recording found:', recording.fileName);
+
+        // Označi kao obrađen
+        this.processedFiles.add(fileUniqueId);
+        await this.saveProcessedFiles();
+
+        // Obradi snimak putem SAF
+        await this.processRecordingWithSAF(recording, fileUniqueId);
+        newFiles++;
+      }
+
+      console.log('[ACR Watcher] ✅ SAF Scan completed');
+      console.log('[ACR Watcher]   - Scanned:', scannedFiles);
+      console.log('[ACR Watcher]   - New:', newFiles);
+      console.log('[ACR Watcher]   - Skipped (duplicates):', skippedFiles);
+
+      return { scannedFiles, newFiles, skippedFiles };
+
+    } catch (error) {
+      console.error('[ACR Watcher] ❌ SAF Error scanning:', error);
+      return { scannedFiles, newFiles, skippedFiles, error: error.message };
+    }
+  }
+
+  /**
+   * Obrada snimka putem SAF
+   */
+  async processRecordingWithSAF(recording, fileUniqueId) {
+    try {
+      console.log('[ACR Watcher] ========================================');
+      console.log('[ACR Watcher] Processing SAF recording:', recording.fileName);
+      console.log('[ACR Watcher] Customer phone:', recording.customerPhone);
+      console.log('[ACR Watcher] Record date:', recording.recordDate.toISOString());
+
+      // Kopiraj fajl u cache za upload
+      const localPath = await SAFStorageService.copyFileToCache(recording.uri, recording.fileName);
+
+      if (!localPath) {
+        console.error('[ACR Watcher] Failed to copy file to cache');
+        return;
+      }
+
+      console.log('[ACR Watcher] File copied to:', localPath);
+
+      // Dobij veličinu fajla
+      const fileInfo = await FileSystem.getInfoAsync(localPath);
+      console.log('[ACR Watcher] File size:', (fileInfo.size / 1024).toFixed(2), 'KB');
+
+      const recordingData = {
+        id: Date.now().toString(),
+        filePath: localPath,
+        fileName: recording.fileName,
+        fileUniqueId: fileUniqueId,
+        customerPhone: recording.customerPhone,
+        technicianPhone: this.technicianPhone,
+        recordedAt: recording.recordDate.toISOString(),
+        fileSize: fileInfo.size || 0,
+        uploaded: false,
+        retryCount: 0,
+        isSAF: true // Flag da je SAF fajl
+      };
+
+      console.log('[ACR Watcher] ----------------------------------------');
+      console.log('[ACR Watcher] Recording metadata:');
+      console.log('[ACR Watcher]   - ID:', recordingData.id);
+      console.log('[ACR Watcher]   - File:', recordingData.fileName);
+      console.log('[ACR Watcher]   - Customer Phone:', recordingData.customerPhone);
+      console.log('[ACR Watcher]   - Technician Phone:', recordingData.technicianPhone);
+      console.log('[ACR Watcher]   - Recorded At:', recordingData.recordedAt);
+      console.log('[ACR Watcher] ----------------------------------------');
+
+      // Save to offline queue
+      await this.saveToOfflineQueue(recordingData);
+
+      // Try to upload
+      await this.uploadRecording(recordingData);
+
+    } catch (error) {
+      console.error('[ACR Watcher] Error processing SAF recording:', error);
     }
   }
 
@@ -465,10 +705,24 @@ class ACRPhoneRecordingWatcher {
   async uploadRecording(recording) {
     try {
       console.log('[ACR Watcher] 📤 Uploading recording:', recording.fileName);
+      console.log('[ACR Watcher] File path:', recording.filePath);
+      console.log('[ACR Watcher] Is SAF file:', recording.isSAF || false);
 
       // Check if file still exists
-      const exists = await RNFS.exists(recording.filePath);
-      if (!exists) {
+      // Za SAF fajlove (kopirane u cache) koristi expo-file-system
+      // Za RNFS fajlove koristi RNFS
+      let fileExists = false;
+
+      if (recording.isSAF || recording.filePath.includes('cache')) {
+        // SAF fajl kopiran u cache - koristi expo-file-system
+        const info = await FileSystem.getInfoAsync(recording.filePath);
+        fileExists = info.exists;
+      } else if (RNFS) {
+        // RNFS fajl - koristi RNFS
+        fileExists = await RNFS.exists(recording.filePath);
+      }
+
+      if (!fileExists) {
         console.error('[ACR Watcher] File no longer exists:', recording.filePath);
         await this.removeFromOfflineQueue(recording.id);
         return { success: false, reason: 'file_not_found' };
@@ -479,16 +733,36 @@ class ACRPhoneRecordingWatcher {
 
       // Determine file type
       let mimeType = 'audio/m4a';
-      if (recording.filePath.endsWith('.mp3')) {
+      const lowerPath = recording.filePath.toLowerCase();
+      if (lowerPath.endsWith('.mp3')) {
         mimeType = 'audio/mpeg';
-      } else if (recording.filePath.endsWith('.wav')) {
+      } else if (lowerPath.endsWith('.wav')) {
         mimeType = 'audio/wav';
-      } else if (recording.filePath.endsWith('.3gp')) {
+      } else if (lowerPath.endsWith('.3gp')) {
         mimeType = 'audio/3gpp';
+      } else if (lowerPath.endsWith('.aac')) {
+        mimeType = 'audio/aac';
+      } else if (lowerPath.endsWith('.ogg')) {
+        mimeType = 'audio/ogg';
+      } else if (lowerPath.endsWith('.amr')) {
+        mimeType = 'audio/amr';
       }
 
+      // Kreiraj pravilni URI za upload
+      // Ako putanja već počinje sa file:// ili content://, koristi je direktno
+      // Inače dodaj file:// prefix
+      let fileUri = recording.filePath;
+      if (Platform.OS === 'android') {
+        if (!fileUri.startsWith('file://') && !fileUri.startsWith('content://')) {
+          fileUri = `file://${fileUri}`;
+        }
+      }
+
+      console.log('[ACR Watcher] Upload URI:', fileUri);
+      console.log('[ACR Watcher] MIME type:', mimeType);
+
       formData.append('audio', {
-        uri: Platform.OS === 'android' ? `file://${recording.filePath}` : recording.filePath,
+        uri: fileUri,
         type: mimeType,
         name: recording.fileName
       });

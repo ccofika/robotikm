@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, useMemo } from 'react';
-import { FlatList, Pressable, RefreshControl, Modal, Alert, Linking, ScrollView, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, Modal, Alert, Linking, ScrollView, View, Platform, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
@@ -12,6 +12,7 @@ import { Box } from '../components/ui/box';
 import { Text } from '../components/ui/text';
 import { Heading } from '../components/ui/heading';
 import { Input, InputField } from '../components/ui/input';
+import ACRPhoneRecordingWatcher from '../services/ACRPhoneRecordingWatcher';
 
 export default function WorkOrdersScreen({ navigation }) {
   const { user, logout } = useContext(AuthContext);
@@ -24,6 +25,56 @@ export default function WorkOrdersScreen({ navigation }) {
   const [statusFilter, setStatusFilter] = useState('new');
   const [showFilters, setShowFilters] = useState(false);
   const [showSyncModal, setShowSyncModal] = useState(false);
+  const [safStatus, setSafStatus] = useState({ required: false, enabled: false });
+  const [isSyncingRecordings, setIsSyncingRecordings] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
+
+  // Proveri SAF status na mount
+  useEffect(() => {
+    checkSAFStatus();
+  }, []);
+
+  const checkSAFStatus = async () => {
+    if (Platform.OS === 'android') {
+      const status = await ACRPhoneRecordingWatcher.checkSAFStatus();
+      setSafStatus(status);
+    }
+  };
+
+  const handleSetupSAF = async () => {
+    setIsSyncingRecordings(true);
+    setSyncResult(null);
+    try {
+      const granted = await ACRPhoneRecordingWatcher.requestSAFFolderAccess();
+      if (granted) {
+        setSafStatus({ required: true, enabled: true });
+        setSyncResult({ success: true, message: 'Pristup folderu omogućen!' });
+      } else {
+        setSyncResult({ success: false, message: 'Pristup folderu nije odobren' });
+      }
+    } catch (error) {
+      setSyncResult({ success: false, message: error.message });
+    } finally {
+      setIsSyncingRecordings(false);
+    }
+  };
+
+  const handleSyncRecordings = async () => {
+    setIsSyncingRecordings(true);
+    setSyncResult(null);
+    try {
+      const result = await ACRPhoneRecordingWatcher.manualSync();
+      if (result.needsSAFSetup) {
+        // SAF nije podešen - korisnik će biti upitan da izabere folder
+        checkSAFStatus();
+      }
+      setSyncResult(result);
+    } catch (error) {
+      setSyncResult({ success: false, message: error.message });
+    } finally {
+      setIsSyncingRecordings(false);
+    }
+  };
 
   useEffect(() => {
     fetchWorkOrders();
@@ -544,6 +595,192 @@ export default function WorkOrdersScreen({ navigation }) {
                   Primeni filtere
                 </Text>
               </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* Sync Modal */}
+      <Modal visible={showSyncModal} animationType="slide" transparent onRequestClose={() => setShowSyncModal(false)}>
+        <Pressable onPress={() => setShowSyncModal(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={{
+              backgroundColor: '#ffffff',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              paddingTop: 24,
+              paddingBottom: Math.max(insets.bottom + 24, 40),
+              paddingHorizontal: 20
+            }}>
+              {/* Handle */}
+              <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                <View style={{ width: 40, height: 5, backgroundColor: '#e5e7eb', borderRadius: 3 }} />
+              </View>
+
+              {/* Header */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+                <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827' }}>Sinhronizacija</Text>
+                <Pressable onPress={() => setShowSyncModal(false)} style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="close" size={28} color="#6b7280" />
+                </Pressable>
+              </View>
+
+              {/* SAF Setup Section - samo za Android 11+ */}
+              {Platform.OS === 'android' && safStatus.required && (
+                <View style={{
+                  backgroundColor: safStatus.enabled ? '#d1fae5' : '#fef3c7',
+                  borderRadius: 16,
+                  padding: 16,
+                  marginBottom: 16,
+                  borderWidth: 1,
+                  borderColor: safStatus.enabled ? '#6ee7b7' : '#fde68a'
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                    <Ionicons
+                      name={safStatus.enabled ? 'checkmark-circle' : 'folder-open-outline'}
+                      size={24}
+                      color={safStatus.enabled ? '#059669' : '#f59e0b'}
+                    />
+                    <Text style={{
+                      fontSize: 16,
+                      fontWeight: '700',
+                      color: safStatus.enabled ? '#065f46' : '#92400e',
+                      marginLeft: 10
+                    }}>
+                      {safStatus.enabled ? 'Pristup folderu omogućen' : 'Potreban pristup folderu'}
+                    </Text>
+                  </View>
+
+                  {!safStatus.enabled && (
+                    <>
+                      <Text style={{ fontSize: 14, color: '#92400e', marginBottom: 12, lineHeight: 20 }}>
+                        Za automatsku sinhronizaciju snimaka poziva potrebno je odobriti pristup ACRPhone folderu.
+                      </Text>
+                      <Pressable
+                        onPress={handleSetupSAF}
+                        disabled={isSyncingRecordings}
+                        style={{
+                          backgroundColor: '#f59e0b',
+                          borderRadius: 12,
+                          paddingVertical: 12,
+                          paddingHorizontal: 16,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          opacity: isSyncingRecordings ? 0.7 : 1
+                        }}
+                      >
+                        <Ionicons name="folder-open" size={20} color="#ffffff" />
+                        <Text style={{ fontSize: 15, fontWeight: '600', color: '#ffffff', marginLeft: 8 }}>
+                          Izaberi ACRPhone folder
+                        </Text>
+                      </Pressable>
+                    </>
+                  )}
+                </View>
+              )}
+
+              {/* Sync Recordings Section */}
+              <View style={{
+                backgroundColor: '#f0f9ff',
+                borderRadius: 16,
+                padding: 16,
+                marginBottom: 16,
+                borderWidth: 1,
+                borderColor: '#bae6fd'
+              }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                  <Ionicons name="mic-outline" size={24} color="#0284c7" />
+                  <Text style={{ fontSize: 16, fontWeight: '700', color: '#0c4a6e', marginLeft: 10 }}>
+                    Sinhronizacija snimaka poziva
+                  </Text>
+                </View>
+
+                <Text style={{ fontSize: 14, color: '#0c4a6e', marginBottom: 16, lineHeight: 20 }}>
+                  Pronađi i uploaduj nove snimke poziva sa ACR Phone aplikacije na server.
+                </Text>
+
+                <Pressable
+                  onPress={handleSyncRecordings}
+                  disabled={isSyncingRecordings || (safStatus.required && !safStatus.enabled)}
+                  style={{
+                    backgroundColor: (safStatus.required && !safStatus.enabled) ? '#9ca3af' : '#0284c7',
+                    borderRadius: 12,
+                    paddingVertical: 14,
+                    paddingHorizontal: 16,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: isSyncingRecordings ? 0.7 : 1
+                  }}
+                >
+                  {isSyncingRecordings ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Ionicons name="sync" size={20} color="#ffffff" />
+                  )}
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#ffffff', marginLeft: 8 }}>
+                    {isSyncingRecordings ? 'Sinhronizacija...' : 'Sinhronizuj snimke'}
+                  </Text>
+                </Pressable>
+
+                {safStatus.required && !safStatus.enabled && (
+                  <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 8, textAlign: 'center' }}>
+                    Prvo omogućite pristup folderu iznad
+                  </Text>
+                )}
+              </View>
+
+              {/* Sync Result */}
+              {syncResult && (
+                <View style={{
+                  backgroundColor: syncResult.success ? '#d1fae5' : '#fee2e2',
+                  borderRadius: 12,
+                  padding: 14,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  marginBottom: 16
+                }}>
+                  <Ionicons
+                    name={syncResult.success ? 'checkmark-circle' : 'alert-circle'}
+                    size={22}
+                    color={syncResult.success ? '#059669' : '#dc2626'}
+                  />
+                  <View style={{ marginLeft: 12, flex: 1 }}>
+                    <Text style={{
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: syncResult.success ? '#065f46' : '#991b1b'
+                    }}>
+                      {syncResult.success ? 'Uspešno!' : 'Greška'}
+                    </Text>
+                    <Text style={{
+                      fontSize: 13,
+                      color: syncResult.success ? '#047857' : '#b91c1c',
+                      marginTop: 2
+                    }}>
+                      {syncResult.message}
+                      {syncResult.scannedFiles !== undefined && (
+                        ` Skenirano: ${syncResult.scannedFiles}, Novo: ${syncResult.newFiles}`
+                      )}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Info */}
+              <View style={{
+                backgroundColor: '#f9fafb',
+                borderRadius: 12,
+                padding: 14,
+                flexDirection: 'row'
+              }}>
+                <Ionicons name="information-circle-outline" size={20} color="#6b7280" style={{ marginTop: 2 }} />
+                <Text style={{ fontSize: 13, color: '#6b7280', marginLeft: 10, flex: 1, lineHeight: 18 }}>
+                  Snimci poziva se automatski sinhronizuju svakih 5 minuta i u 12:00 / 00:00.
+                  Ovde možete pokrenuti ručnu sinhronizaciju.
+                </Text>
+              </View>
             </View>
           </Pressable>
         </Pressable>

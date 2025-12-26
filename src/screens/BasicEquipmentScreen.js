@@ -99,18 +99,22 @@ export default function BasicEquipmentScreen() {
 
   const stats = useMemo(() => {
     const byType = {};
+    let totalPrice = 0;
     equipment.forEach(item => {
       const type = item.type;
       if (!byType[type]) {
-        byType[type] = { count: 0, quantity: 0 };
+        byType[type] = { count: 0, quantity: 0, price: 0 };
       }
       byType[type].count += 1;
       byType[type].quantity += item.quantity || 0;
+      byType[type].price += (item.price || 0) * (item.quantity || 0);
+      totalPrice += (item.price || 0) * (item.quantity || 0);
     });
 
     return {
       total: equipment.length,
       totalQuantity: equipment.reduce((sum, e) => sum + (e.quantity || 0), 0),
+      totalPrice,
       byType
     };
   }, [equipment]);
@@ -126,6 +130,7 @@ export default function BasicEquipmentScreen() {
 
   const renderEquipmentItem = ({ item }) => {
     const config = getCategoryConfig(item.type);
+    const itemTotalPrice = (item.price || 0) * (item.quantity || 0);
 
     return (
       <View style={{
@@ -163,41 +168,70 @@ export default function BasicEquipmentScreen() {
               }}>
                 {item.type}
               </Text>
-              <View style={{
-                backgroundColor: `${config.color}15`,
-                paddingHorizontal: 8,
-                paddingVertical: 3,
-                borderRadius: 6,
-                alignSelf: 'flex-start',
-              }}>
-                <Text style={{
-                  fontSize: 11,
-                  fontWeight: '600',
-                  color: config.color,
-                  textTransform: 'uppercase',
+              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <View style={{
+                  backgroundColor: `${config.color}15`,
+                  paddingHorizontal: 8,
+                  paddingVertical: 3,
+                  borderRadius: 6,
                 }}>
-                  {config.label}
-                </Text>
+                  <Text style={{
+                    fontSize: 11,
+                    fontWeight: '600',
+                    color: config.color,
+                    textTransform: 'uppercase',
+                  }}>
+                    {config.label}
+                  </Text>
+                </View>
+                {item.price > 0 && (
+                  <View style={{
+                    backgroundColor: '#dcfce7',
+                    paddingHorizontal: 8,
+                    paddingVertical: 3,
+                    borderRadius: 6,
+                  }}>
+                    <Text style={{
+                      fontSize: 11,
+                      fontWeight: '600',
+                      color: '#16a34a',
+                    }}>
+                      {item.price.toLocaleString('sr-RS')} RSD
+                    </Text>
+                  </View>
+                )}
               </View>
             </View>
           </View>
 
-          {/* Right: Quantity Badge */}
-          <View style={{
-            backgroundColor: config.color,
-            paddingHorizontal: 12,
-            paddingVertical: 6,
-            borderRadius: 12,
-            minWidth: 50,
-            alignItems: 'center',
-          }}>
-            <Text style={{
-              fontSize: 16,
-              fontWeight: '700',
-              color: '#ffffff',
+          {/* Right: Quantity Badge + Total Price */}
+          <View style={{ alignItems: 'flex-end' }}>
+            <View style={{
+              backgroundColor: config.color,
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 12,
+              minWidth: 50,
+              alignItems: 'center',
             }}>
-              ×{item.quantity || 0}
-            </Text>
+              <Text style={{
+                fontSize: 16,
+                fontWeight: '700',
+                color: '#ffffff',
+              }}>
+                ×{item.quantity || 0}
+              </Text>
+            </View>
+            {itemTotalPrice > 0 && (
+              <Text style={{
+                fontSize: 12,
+                fontWeight: '600',
+                color: '#16a34a',
+                marginTop: 4,
+              }}>
+                {itemTotalPrice.toLocaleString('sr-RS')} RSD
+              </Text>
+            )}
           </View>
         </View>
       </View>
@@ -225,7 +259,7 @@ export default function BasicEquipmentScreen() {
         borderBottomColor: '#f3f4f6',
       }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
             <View style={{
               width: 44,
               height: 44,
@@ -237,13 +271,32 @@ export default function BasicEquipmentScreen() {
             }}>
               <Ionicons name="hardware-chip" size={24} color="#9333ea" />
             </View>
-            <View>
+            <View style={{ flex: 1 }}>
               <Text style={{ fontSize: 24, fontWeight: '700', color: '#111827' }}>
                 Osnovna Oprema
               </Text>
-              <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
-                Inventar tehničara
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
+                <Text style={{ fontSize: 13, color: '#6b7280' }}>
+                  Inventar tehničara
+                </Text>
+                {stats.totalPrice > 0 && (
+                  <View style={{
+                    backgroundColor: '#dcfce7',
+                    paddingHorizontal: 8,
+                    paddingVertical: 2,
+                    borderRadius: 8,
+                    marginLeft: 8,
+                  }}>
+                    <Text style={{
+                      fontSize: 12,
+                      fontWeight: '600',
+                      color: '#16a34a',
+                    }}>
+                      {stats.totalPrice.toLocaleString('sr-RS')} RSD
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
           <Pressable
