@@ -14,8 +14,7 @@
     },
     "android": {
       "package": "com.robotik.mobile",
-      "versionCode": 6,
-      "useNextNotificationsApi": true,
+      "googleServicesFile": "./google-services.json",
       "permissions": [
         "POST_NOTIFICATIONS",
         "RECEIVE_BOOT_COMPLETED",
@@ -24,7 +23,12 @@
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "READ_MEDIA_AUDIO",
-        "MANAGE_EXTERNAL_STORAGE"
+        "MANAGE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#9333ea"
@@ -37,6 +41,16 @@
           "color": "#9333ea",
           "androidMode": "default",
           "androidCollapsedTitle": "Robotik notifikacije"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Aplikacija koristi vašu lokaciju za praćenje tehničara na mapi.",
+          "locationAlwaysPermission": "Aplikacija koristi vašu lokaciju za praćenje tehničara na mapi.",
+          "locationWhenInUsePermission": "Aplikacija koristi vašu lokaciju za praćenje tehničara na mapi.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
         }
       ]
     ],

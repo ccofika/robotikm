@@ -32,6 +32,9 @@ import './src/services/backgroundTasks';
 // KRITIČNO: Importuj setupNotificationChannels funkciju
 import notificationService, { setupNotificationChannels } from './src/services/notificationService';
 
+// Import GPS Location Service
+import gpsLocationService from './src/services/gpsLocationService';
+
 // Import debugging utilities (samo u dev modu)
 if (__DEV__) {
   require('./src/utils/clearSyncQueue');
@@ -112,26 +115,59 @@ function AppContent() {
     initializeWatcher();
   }, [user]);
 
-  // Setup notification listener za sync_recordings push notifikaciju
-  // Kada admin klikne "Sync snimke" na webu, svi tehničari dobijaju notifikaciju
+  // Inicijalizacija GPS servisa nakon login-a
   useEffect(() => {
-    if (isExpoGo || !ACRPhoneRecordingWatcher) return;
+    if (user && user.role === 'technician') {
+      console.log('[App] Initializing GPS Location Service for technician...');
+      gpsLocationService.initialize().then(success => {
+        if (success) {
+          console.log('[App] GPS Location Service initialized');
+        } else {
+          console.warn('[App] GPS Location Service failed to initialize');
+        }
+      });
+    }
+  }, [user]);
 
-    // Handler za sync_recordings notifikaciju
-    const handleSyncNotification = (notification) => {
+  // Setup notification listener za sync_recordings i gps_location_request push notifikacije
+  useEffect(() => {
+    // Handler za razne tipove notifikacija
+    const handleNotification = async (notification) => {
       const data = notification?.request?.content?.data;
-      if (data?.type === 'sync_recordings' && data?.action === 'trigger_sync') {
-        console.log('[App] 📥 Received sync_recordings notification - triggering manual sync');
-        ACRPhoneRecordingWatcher.manualSync().then(result => {
-          console.log('[App] Manual sync result:', result);
-        });
+
+      // GPS Location Request - admin traži lokaciju
+      if (data?.type === 'gps_location_request' && data?.action === 'send_location') {
+        console.log('[App] 📍 Received GPS location request notification');
+        console.log('[App] Request ID:', data?.requestId);
+
+        try {
+          const result = await gpsLocationService.handleGPSRequest(data);
+          if (result.success) {
+            console.log('[App] ✅ GPS location sent successfully');
+          } else {
+            console.error('[App] ❌ GPS location send failed:', result.error);
+          }
+        } catch (error) {
+          console.error('[App] ❌ GPS location error:', error);
+        }
+        return;
+      }
+
+      // Sync recordings - samo ako ACRPhoneRecordingWatcher je dostupan
+      if (!isExpoGo && ACRPhoneRecordingWatcher) {
+        if (data?.type === 'sync_recordings' && data?.action === 'trigger_sync') {
+          console.log('[App] 📥 Received sync_recordings notification - triggering manual sync');
+          ACRPhoneRecordingWatcher.manualSync().then(result => {
+            console.log('[App] Manual sync result:', result);
+          });
+        }
       }
     };
 
     // Postavi listener
     notificationService.setupNotificationListeners(
-      handleSyncNotification, // onNotificationReceived
-      handleSyncNotification  // onNotificationTapped
+      handleNotification, // onNotificationReceived
+      handleNotification  // onNotificationTapped
     );
 
     return () => {

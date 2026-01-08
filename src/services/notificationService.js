@@ -88,6 +88,27 @@ class NotificationService {
   }
 
   /**
+   * Šalje debug info na server
+   */
+  async sendDebugToServer(stage, data) {
+    try {
+      await api.post('/api/android-notifications/debug-register', {
+        stage,
+        data,
+        timestamp: new Date().toISOString(),
+        device: {
+          brand: Device.brand,
+          model: Device.modelName,
+          os: Platform.OS,
+          isDevice: Device.isDevice,
+        }
+      });
+    } catch (e) {
+      // Ignore errors from debug endpoint
+    }
+  }
+
+  /**
    * Registruje uređaj za push notifikacije i čuva token na backend
    */
   async registerForPushNotifications() {
@@ -96,31 +117,46 @@ class NotificationService {
       console.log('Device.isDevice:', Device.isDevice);
       console.log('Constants.appOwnership:', Constants.appOwnership);
       console.log('Platform.OS:', Platform.OS);
+      console.log('Device.brand:', Device.brand);
+      console.log('Device.modelName:', Device.modelName);
+
+      // Pošalji debug info na server - START
+      await this.sendDebugToServer('START', {
+        isDevice: Device.isDevice,
+        appOwnership: Constants.appOwnership,
+        platform: Platform.OS,
+      });
 
       // Proveri da li je fizički uređaj (emulator ne podržava push notifikacije)
       if (!Device.isDevice) {
         console.log('⚠️ Push notifikacije ne rade na emulatoru');
+        await this.sendDebugToServer('NOT_DEVICE', { reason: 'emulator' });
         return null;
       }
 
       // Proveri da li je Expo Go ili standalone build
       const isExpoGo = Constants.appOwnership === 'expo';
       console.log('isExpoGo:', isExpoGo);
+      await this.sendDebugToServer('EXPO_CHECK', { isExpoGo, appOwnership: Constants.appOwnership });
 
+      // NAPOMENA: U SDK 53+, push notifikacije NE rade u Expo Go na Androidu
+      // Ali dopusti registraciju da se proba
       if (isExpoGo) {
-        console.log('⚠️ Push notifikacije se preskačuju u Expo Go - biće aktivne u APK buildu');
-        return null;
+        console.log('⚠️ Running in Expo Go - push notifications may not work on Android SDK 53+');
       }
 
-      // Kreiraj sve notification kanale za Android
-      console.log('Setting up notification channels...');
-      await setupNotificationChannels();
-      console.log('Notification channels setup complete');
+      // Kreiraj sve notification kanale za Android PRVO (Android 13+ zahteva ovo)
+      console.log('Setting up notification channels FIRST (required for Android 13+)...');
+      const channelsCreated = await setupNotificationChannels();
+      console.log('Notification channels setup result:', channelsCreated);
+      await this.sendDebugToServer('CHANNELS', { created: channelsCreated });
 
       // Zatraži dozvolu od korisnika
       console.log('Checking notification permissions...');
       const { status: existingStatus } = await Notifications.getPermissionsAsync();
       console.log('Existing permission status:', existingStatus);
+      await this.sendDebugToServer('PERMISSION_CHECK', { existingStatus });
+
       let finalStatus = existingStatus;
 
       if (existingStatus !== 'granted') {
@@ -139,44 +175,119 @@ class NotificationService {
         });
         finalStatus = status;
         console.log('New permission status:', finalStatus);
+        await this.sendDebugToServer('PERMISSION_REQUEST', { finalStatus });
       }
 
       if (finalStatus !== 'granted') {
         console.log('⚠️ Korisnik nije dozvolio notifikacije - status:', finalStatus);
+        await this.sendDebugToServer('PERMISSION_DENIED', { finalStatus });
         return null;
       }
 
       console.log('✅ Dozvola za notifikacije odobrena');
+      await this.sendDebugToServer('PERMISSION_GRANTED', { finalStatus });
 
-      // Dobij Expo push token
-      const tokenOptions = {};
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-      console.log('ProjectId from config:', projectId);
+      // Dobij Expo push token - koristi eksplicitni projectId
+      const projectId = Constants.expoConfig?.extra?.eas?.projectId ??
+                        Constants.easConfig?.projectId ??
+                        '7c5bfec7-0a8a-49f6-89b4-7408977feb4f'; // Fallback na poznati projectId
 
-      if (projectId) {
-        tokenOptions.projectId = projectId;
-      }
+      console.log('ProjectId being used:', projectId);
+      await this.sendDebugToServer('PROJECT_ID', { projectId });
 
-      console.log('Getting Expo push token with options:', tokenOptions);
-      const token = await Notifications.getExpoPushTokenAsync(tokenOptions);
-      console.log('✅ Push token dobijen:', token.data);
+      console.log('Getting Expo push token...');
+      await this.sendDebugToServer('GETTING_TOKEN', { message: 'About to call getExpoPushTokenAsync' });
 
-      // Pošalji token na backend
-      console.log('Sending token to backend...');
-      try {
-        const response = await api.post('/api/android-notifications/register-token', {
-          pushToken: token.data,
+      // Timeout wrapper - getExpoPushTokenAsync može da visi zauvek
+      const getTokenWithTimeout = (options, timeoutMs = 15000) => {
+        return new Promise((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error(`getExpoPushTokenAsync timed out after ${timeoutMs}ms`));
+          }, timeoutMs);
+
+          Notifications.getExpoPushTokenAsync(options)
+            .then(result => {
+              clearTimeout(timeout);
+              resolve(result);
+            })
+            .catch(error => {
+              clearTimeout(timeout);
+              reject(error);
+            });
         });
-        console.log('✅ Token uspešno registrovan na backend');
-        console.log('Backend response:', response.data);
-      } catch (error) {
-        console.error('❌ Greška pri slanju tokena na backend:', error);
-        console.error('Error response:', error.response?.data);
-        console.error('Error status:', error.response?.status);
+      };
+
+      let token;
+      try {
+        token = await getTokenWithTimeout({ projectId }, 15000);
+        console.log('✅ Push token dobijen:', token.data);
+        await this.sendDebugToServer('TOKEN_SUCCESS', { token: token.data });
+      } catch (tokenError) {
+        console.error('❌ Greška pri dobijanju push tokena:', tokenError);
+        console.error('TokenError name:', tokenError.name);
+        console.error('TokenError message:', tokenError.message);
+        await this.sendDebugToServer('TOKEN_ERROR', {
+          name: tokenError.name,
+          message: tokenError.message,
+          stack: tokenError.stack
+        });
+
+        // Pokušaj bez projectId kao fallback
+        try {
+          console.log('Trying to get token without projectId...');
+          await this.sendDebugToServer('TOKEN_FALLBACK', { message: 'Trying without projectId' });
+          token = await getTokenWithTimeout({}, 15000);
+          console.log('✅ Push token dobijen (bez projectId):', token.data);
+          await this.sendDebugToServer('TOKEN_FALLBACK_SUCCESS', { token: token.data });
+        } catch (fallbackError) {
+          console.error('❌ Fallback also failed:', fallbackError.message);
+          await this.sendDebugToServer('TOKEN_FALLBACK_ERROR', {
+            message: fallbackError.message,
+            stack: fallbackError.stack
+          });
+          return null;
+        }
       }
 
-      console.log('=== REGISTER FOR PUSH NOTIFICATIONS END ===');
-      return token.data;
+      if (!token || !token.data) {
+        console.error('❌ Token je prazan ili undefined');
+        await this.sendDebugToServer('TOKEN_EMPTY', { token });
+        return null;
+      }
+
+      // Pošalji token na backend - sa više pokušaja
+      console.log('Sending token to backend...');
+      console.log('Token to send:', token.data);
+
+      let retries = 3;
+      let lastError = null;
+
+      while (retries > 0) {
+        try {
+          const response = await api.post('/api/android-notifications/register-token', {
+            pushToken: token.data,
+          });
+          console.log('✅ Token uspešno registrovan na backend!');
+          console.log('Backend response:', JSON.stringify(response.data, null, 2));
+          console.log('=== REGISTER FOR PUSH NOTIFICATIONS SUCCESS ===');
+          return token.data;
+        } catch (error) {
+          lastError = error;
+          console.error(`❌ Greška pri slanju tokena na backend (pokušaj ${4 - retries}/3):`, error.message);
+          console.error('Error response:', error.response?.data);
+          console.error('Error status:', error.response?.status);
+          retries--;
+          if (retries > 0) {
+            console.log(`Čekam 2 sekunde pre sledećeg pokušaja...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        }
+      }
+
+      console.error('❌ Svi pokušaji registracije tokena su neuspeli');
+      console.error('Last error:', lastError);
+      console.log('=== REGISTER FOR PUSH NOTIFICATIONS END (WITH ERRORS) ===');
+      return token.data; // Vrati token čak i ako backend registracija nije uspela
     } catch (error) {
       console.error('=== REGISTER PUSH NOTIFICATIONS ERROR ===');
       console.error('Error name:', error.name);

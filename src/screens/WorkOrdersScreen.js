@@ -28,6 +28,9 @@ export default function WorkOrdersScreen({ navigation }) {
   const [safStatus, setSafStatus] = useState({ required: false, enabled: false });
   const [isSyncingRecordings, setIsSyncingRecordings] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [syncPassword, setSyncPassword] = useState('');
 
   // Proveri SAF status na mount
   useEffect(() => {
@@ -38,6 +41,7 @@ export default function WorkOrdersScreen({ navigation }) {
     if (Platform.OS === 'android') {
       const status = await ACRPhoneRecordingWatcher.checkSAFStatus();
       setSafStatus(status);
+      setProcessedCount(ACRPhoneRecordingWatcher.getProcessedFilesCount());
     }
   };
 
@@ -69,10 +73,46 @@ export default function WorkOrdersScreen({ navigation }) {
         checkSAFStatus();
       }
       setSyncResult(result);
+      setProcessedCount(ACRPhoneRecordingWatcher.getProcessedFilesCount());
     } catch (error) {
       setSyncResult({ success: false, message: error.message });
     } finally {
       setIsSyncingRecordings(false);
+    }
+  };
+
+  const handleResetProcessedFiles = async () => {
+    Alert.alert(
+      'Resetuj obrađene fajlove',
+      'Ovo će omogućiti da se svi snimci ponovo procesiraju. Da li ste sigurni?',
+      [
+        { text: 'Otkaži', style: 'cancel' },
+        {
+          text: 'Resetuj',
+          style: 'destructive',
+          onPress: async () => {
+            const result = await ACRPhoneRecordingWatcher.resetProcessedFiles();
+            setSyncResult(result);
+            setProcessedCount(0);
+          }
+        }
+      ]
+    );
+  };
+
+  const handleSyncButtonPress = () => {
+    setShowPasswordModal(true);
+    setSyncPassword('');
+  };
+
+  const handlePasswordSubmit = () => {
+    if (syncPassword === 'Robotik2023!') {
+      setShowPasswordModal(false);
+      setSyncPassword('');
+      setShowSyncModal(true);
+    } else {
+      Alert.alert('Greška', 'Pogrešna šifra');
+      setSyncPassword('');
     }
   };
 
@@ -374,7 +414,7 @@ export default function WorkOrdersScreen({ navigation }) {
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <View style={{ marginRight: 12 }}>
-              <SyncStatusIndicator onPress={() => setShowSyncModal(true)} />
+              <SyncStatusIndicator onPress={handleSyncButtonPress} />
             </View>
             <Pressable
               onPress={() => setShowFilters(true)}
@@ -600,6 +640,84 @@ export default function WorkOrdersScreen({ navigation }) {
         </Pressable>
       </Modal>
 
+      {/* Password Modal */}
+      <Modal visible={showPasswordModal} animationType="fade" transparent onRequestClose={() => setShowPasswordModal(false)}>
+        <Pressable onPress={() => setShowPasswordModal(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <Pressable onPress={(e) => e.stopPropagation()}>
+            <View style={{
+              backgroundColor: '#ffffff',
+              borderRadius: 20,
+              padding: 24,
+              width: 300,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.25,
+              shadowRadius: 8,
+              elevation: 5
+            }}>
+              <View style={{ alignItems: 'center', marginBottom: 20 }}>
+                <Ionicons name="lock-closed" size={40} color="#2563eb" />
+                <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827', marginTop: 12 }}>
+                  Unesi šifru
+                </Text>
+              </View>
+
+              <View style={{
+                backgroundColor: '#f3f4f6',
+                borderRadius: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                marginBottom: 16
+              }}>
+                <InputField
+                  placeholder="Šifra..."
+                  value={syncPassword}
+                  onChangeText={setSyncPassword}
+                  secureTextEntry={true}
+                  style={{
+                    fontSize: 16,
+                    color: '#111827',
+                    fontWeight: '500',
+                    padding: 0
+                  }}
+                  placeholderTextColor="#9ca3af"
+                  onSubmitEditing={handlePasswordSubmit}
+                />
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 10 }}>
+                <Pressable
+                  onPress={() => setShowPasswordModal(false)}
+                  style={{
+                    flex: 1,
+                    backgroundColor: '#f3f4f6',
+                    borderRadius: 12,
+                    paddingVertical: 14
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#6b7280', textAlign: 'center' }}>
+                    Otkaži
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={handlePasswordSubmit}
+                  style={{
+                    flex: 1,
+                    backgroundColor: '#2563eb',
+                    borderRadius: 12,
+                    paddingVertical: 14
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#ffffff', textAlign: 'center' }}>
+                    Potvrdi
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Sync Modal */}
       <Modal visible={showSyncModal} animationType="slide" transparent onRequestClose={() => setShowSyncModal(false)}>
         <Pressable onPress={() => setShowSyncModal(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
@@ -731,40 +849,176 @@ export default function WorkOrdersScreen({ navigation }) {
                 )}
               </View>
 
-              {/* Sync Result */}
-              {syncResult && (
+              {/* Reset Processed Files Section */}
+              {processedCount > 0 && (
                 <View style={{
-                  backgroundColor: syncResult.success ? '#d1fae5' : '#fee2e2',
-                  borderRadius: 12,
-                  padding: 14,
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  marginBottom: 16
+                  backgroundColor: '#fefce8',
+                  borderRadius: 16,
+                  padding: 16,
+                  marginBottom: 16,
+                  borderWidth: 1,
+                  borderColor: '#fde047'
                 }}>
-                  <Ionicons
-                    name={syncResult.success ? 'checkmark-circle' : 'alert-circle'}
-                    size={22}
-                    color={syncResult.success ? '#059669' : '#dc2626'}
-                  />
-                  <View style={{ marginLeft: 12, flex: 1 }}>
-                    <Text style={{
-                      fontSize: 14,
-                      fontWeight: '600',
-                      color: syncResult.success ? '#065f46' : '#991b1b'
-                    }}>
-                      {syncResult.success ? 'Uspešno!' : 'Greška'}
-                    </Text>
-                    <Text style={{
-                      fontSize: 13,
-                      color: syncResult.success ? '#047857' : '#b91c1c',
-                      marginTop: 2
-                    }}>
-                      {syncResult.message}
-                      {syncResult.scannedFiles !== undefined && (
-                        ` Skenirano: ${syncResult.scannedFiles}, Novo: ${syncResult.newFiles}`
-                      )}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                    <Ionicons name="refresh-circle-outline" size={24} color="#ca8a04" />
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#713f12', marginLeft: 10 }}>
+                      Obrađeni fajlovi: {processedCount}
                     </Text>
                   </View>
+
+                  <Text style={{ fontSize: 13, color: '#a16207', marginBottom: 12, lineHeight: 18 }}>
+                    Ako snimci nisu uspešno uploadovani, resetujte listu da biste ih ponovo procesirali.
+                  </Text>
+
+                  <Pressable
+                    onPress={handleResetProcessedFiles}
+                    style={{
+                      backgroundColor: '#eab308',
+                      borderRadius: 12,
+                      paddingVertical: 12,
+                      paddingHorizontal: 16,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#ffffff" />
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#ffffff', marginLeft: 8 }}>
+                      Resetuj i pokušaj ponovo
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {/* Sync Result */}
+              {syncResult && (
+                <View style={{ marginBottom: 16 }}>
+                  {/* Status Header */}
+                  <View style={{
+                    backgroundColor: syncResult.success ? '#d1fae5' : (syncResult.failedFiles > 0 ? '#fef3c7' : '#fee2e2'),
+                    borderRadius: 12,
+                    padding: 14,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginBottom: 8
+                  }}>
+                    <Ionicons
+                      name={syncResult.success ? 'checkmark-circle' : (syncResult.failedFiles > 0 ? 'warning' : 'alert-circle')}
+                      size={22}
+                      color={syncResult.success ? '#059669' : (syncResult.failedFiles > 0 ? '#f59e0b' : '#dc2626')}
+                    />
+                    <View style={{ marginLeft: 12, flex: 1 }}>
+                      <Text style={{
+                        fontSize: 14,
+                        fontWeight: '600',
+                        color: syncResult.success ? '#065f46' : (syncResult.failedFiles > 0 ? '#92400e' : '#991b1b')
+                      }}>
+                        {syncResult.success ? 'Uspešno!' : (syncResult.failedFiles > 0 ? 'Delimično uspešno' : 'Greška')}
+                      </Text>
+                      <Text style={{
+                        fontSize: 13,
+                        color: syncResult.success ? '#047857' : (syncResult.failedFiles > 0 ? '#b45309' : '#b91c1c'),
+                        marginTop: 2
+                      }}>
+                        {syncResult.message}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Statistics */}
+                  {syncResult.scannedFiles !== undefined && (
+                    <View style={{
+                      backgroundColor: '#f3f4f6',
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 8
+                    }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 8 }}>
+                        Statistika:
+                      </Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                        <View style={{ width: '50%', marginBottom: 4 }}>
+                          <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                            Skenirano: <Text style={{ fontWeight: '600', color: '#111827' }}>{syncResult.scannedFiles}</Text>
+                          </Text>
+                        </View>
+                        <View style={{ width: '50%', marginBottom: 4 }}>
+                          <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                            Novih: <Text style={{ fontWeight: '600', color: '#8b5cf6' }}>{syncResult.newFiles}</Text>
+                          </Text>
+                        </View>
+                        {syncResult.uploadedFiles !== undefined && (
+                          <View style={{ width: '50%', marginBottom: 4 }}>
+                            <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                              Uploadovano: <Text style={{ fontWeight: '600', color: '#059669' }}>{syncResult.uploadedFiles}</Text>
+                            </Text>
+                          </View>
+                        )}
+                        {syncResult.failedFiles !== undefined && syncResult.failedFiles > 0 && (
+                          <View style={{ width: '50%', marginBottom: 4 }}>
+                            <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                              Neuspešno: <Text style={{ fontWeight: '600', color: '#dc2626' }}>{syncResult.failedFiles}</Text>
+                            </Text>
+                          </View>
+                        )}
+                        {syncResult.skippedFiles !== undefined && syncResult.skippedFiles > 0 && (
+                          <View style={{ width: '50%', marginBottom: 4 }}>
+                            <Text style={{ fontSize: 12, color: '#6b7280' }}>
+                              Preskočeno: <Text style={{ fontWeight: '600', color: '#6b7280' }}>{syncResult.skippedFiles}</Text>
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Details Log */}
+                  {syncResult.details && syncResult.details.length > 0 && (
+                    <View style={{
+                      backgroundColor: '#f9fafb',
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 8,
+                      maxHeight: 150
+                    }}>
+                      <Text style={{ fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 8 }}>
+                        Detalji:
+                      </Text>
+                      <ScrollView style={{ maxHeight: 110 }} nestedScrollEnabled={true}>
+                        {syncResult.details.map((detail, index) => (
+                          <Text key={index} style={{ fontSize: 12, color: '#4b5563', marginBottom: 4, lineHeight: 16 }}>
+                            {detail}
+                          </Text>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+
+                  {/* Errors */}
+                  {syncResult.errors && syncResult.errors.length > 0 && (
+                    <View style={{
+                      backgroundColor: '#fef2f2',
+                      borderRadius: 12,
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: '#fecaca',
+                      maxHeight: 150
+                    }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                        <Ionicons name="warning" size={16} color="#dc2626" />
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: '#991b1b', marginLeft: 6 }}>
+                          Greške ({syncResult.errors.length}):
+                        </Text>
+                      </View>
+                      <ScrollView style={{ maxHeight: 100 }} nestedScrollEnabled={true}>
+                        {syncResult.errors.map((error, index) => (
+                          <Text key={index} style={{ fontSize: 12, color: '#b91c1c', marginBottom: 4, lineHeight: 16 }}>
+                            {error}
+                          </Text>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
                 </View>
               )}
 

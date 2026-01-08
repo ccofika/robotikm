@@ -1,8 +1,10 @@
 import { PermissionsAndroid, Platform, Linking, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-import * as FileSystem from 'expo-file-system';
+// SDK 54: koristi legacy API
+import * as FileSystem from 'expo-file-system/legacy';
 import { API_URL } from './api';
+import { storage } from '../utils/storage';
 import SAFStorageService from './SAFStorageService';
 
 // Proveri da li app radi u Expo Go
@@ -476,12 +478,22 @@ class ACRPhoneRecordingWatcher {
     let scannedFiles = 0;
     let newFiles = 0;
     let skippedFiles = 0;
+    let uploadedFiles = 0;
+    let failedFiles = 0;
+    const errors = [];
+    const details = [];
 
     try {
       // Skeniraj za snimke u poslednjih 2 dana
+      details.push('🔍 Počinjem skeniranje...');
       const recordings = await SAFStorageService.scanForRecordings(2);
 
+      details.push(`📁 Pronađeno ${recordings.length} snimaka u folderu`);
       console.log('[ACR Watcher] SAF found', recordings.length, 'recordings');
+
+      if (recordings.length === 0) {
+        details.push('ℹ️ Nema snimaka u poslednjih 2 dana');
+      }
 
       for (const recording of recordings) {
         scannedFiles++;
@@ -492,35 +504,78 @@ class ACRPhoneRecordingWatcher {
         // Proveri da li je već obrađen
         if (this.processedFiles.has(fileUniqueId)) {
           skippedFiles++;
+          details.push(`⏭️ Preskočen (već obrađen): ${recording.fileName}`);
           continue;
         }
 
         console.log('[ACR Watcher] 🆕 New recording found:', recording.fileName);
-
-        // Označi kao obrađen
-        this.processedFiles.add(fileUniqueId);
-        await this.saveProcessedFiles();
+        newFiles++;
+        details.push(`🆕 Pronađen nov snimak: ${recording.fileName}`);
 
         // Obradi snimak putem SAF
-        await this.processRecordingWithSAF(recording, fileUniqueId);
-        newFiles++;
+        const result = await this.processRecordingWithSAF(recording, fileUniqueId);
+
+        if (result.success) {
+          uploadedFiles++;
+          details.push(`✅ ${recording.fileName} → uploadovan`);
+          // Označi kao obrađen SAMO ako je upload uspeo
+          this.processedFiles.add(fileUniqueId);
+          await this.saveProcessedFiles();
+        } else {
+          // Proveri da li je greška trajnog tipa (ne treba ponovo pokušavati)
+          const permanentErrors = ['no_matching_workorder', 'duplicate', 'file_not_found'];
+          if (permanentErrors.includes(result.reason)) {
+            // Trajna greška - označi kao obrađen da ne pokušavamo ponovo
+            this.processedFiles.add(fileUniqueId);
+            await this.saveProcessedFiles();
+            details.push(`⚠️ ${recording.fileName}: ${result.error || result.reason} (neće se ponovo pokušavati)`);
+          } else {
+            // Privremena greška - NE označavaj kao obrađen, pokušaj ponovo sledeći put
+            failedFiles++;
+            const errorMsg = `❌ ${recording.fileName}: ${result.error || result.reason}`;
+            errors.push(errorMsg);
+            details.push(errorMsg);
+          }
+        }
       }
 
       console.log('[ACR Watcher] ✅ SAF Scan completed');
       console.log('[ACR Watcher]   - Scanned:', scannedFiles);
       console.log('[ACR Watcher]   - New:', newFiles);
+      console.log('[ACR Watcher]   - Uploaded:', uploadedFiles);
+      console.log('[ACR Watcher]   - Failed:', failedFiles);
       console.log('[ACR Watcher]   - Skipped (duplicates):', skippedFiles);
 
-      return { scannedFiles, newFiles, skippedFiles };
+      return {
+        scannedFiles,
+        newFiles,
+        skippedFiles,
+        uploadedFiles,
+        failedFiles,
+        errors,
+        details,
+        success: failedFiles === 0 && newFiles > 0 ? true : (newFiles === 0 && scannedFiles >= 0)
+      };
 
     } catch (error) {
       console.error('[ACR Watcher] ❌ SAF Error scanning:', error);
-      return { scannedFiles, newFiles, skippedFiles, error: error.message };
+      errors.push(`Greška pri skeniranju: ${error.message}`);
+      return {
+        scannedFiles,
+        newFiles,
+        skippedFiles,
+        uploadedFiles,
+        failedFiles,
+        errors,
+        details,
+        error: error.message
+      };
     }
   }
 
   /**
    * Obrada snimka putem SAF
+   * Vraća { success: boolean, error?: string, reason?: string }
    */
   async processRecordingWithSAF(recording, fileUniqueId) {
     try {
@@ -528,20 +583,40 @@ class ACRPhoneRecordingWatcher {
       console.log('[ACR Watcher] Processing SAF recording:', recording.fileName);
       console.log('[ACR Watcher] Customer phone:', recording.customerPhone);
       console.log('[ACR Watcher] Record date:', recording.recordDate.toISOString());
+      console.log('[ACR Watcher] SAF URI:', recording.uri);
 
       // Kopiraj fajl u cache za upload
-      const localPath = await SAFStorageService.copyFileToCache(recording.uri, recording.fileName);
+      let localPath;
+      try {
+        localPath = await SAFStorageService.copyFileToCache(recording.uri, recording.fileName);
+      } catch (copyError) {
+        console.error('[ACR Watcher] Error copying file to cache:', copyError);
+        return {
+          success: false,
+          error: `Greška pri kopiranju u cache: ${copyError.message}`
+        };
+      }
 
       if (!localPath) {
-        console.error('[ACR Watcher] Failed to copy file to cache');
-        return;
+        console.error('[ACR Watcher] Failed to copy file to cache - returned null');
+        return { success: false, error: 'copyFileToCache vratio null - fajl nije kopiran' };
       }
 
       console.log('[ACR Watcher] File copied to:', localPath);
 
-      // Dobij veličinu fajla
-      const fileInfo = await FileSystem.getInfoAsync(localPath);
-      console.log('[ACR Watcher] File size:', (fileInfo.size / 1024).toFixed(2), 'KB');
+      // Dobij veličinu fajla koristeći FileSystem legacy API
+      let fileSize = 0;
+      try {
+        const fileInfo = await FileSystem.getInfoAsync(localPath);
+        if (!fileInfo.exists) {
+          return { success: false, error: `Fajl ne postoji nakon kopiranja: ${localPath}` };
+        }
+        fileSize = fileInfo.size || 0;
+      } catch (infoError) {
+        console.error('[ACR Watcher] Error getting file info:', infoError);
+        return { success: false, error: `Greška pri čitanju info o fajlu: ${infoError.message}` };
+      }
+      console.log('[ACR Watcher] File size:', (fileSize / 1024).toFixed(2), 'KB');
 
       const recordingData = {
         id: Date.now().toString(),
@@ -551,7 +626,7 @@ class ACRPhoneRecordingWatcher {
         customerPhone: recording.customerPhone,
         technicianPhone: this.technicianPhone,
         recordedAt: recording.recordDate.toISOString(),
-        fileSize: fileInfo.size || 0,
+        fileSize: fileSize,
         uploaded: false,
         retryCount: 0,
         isSAF: true // Flag da je SAF fajl
@@ -570,10 +645,12 @@ class ACRPhoneRecordingWatcher {
       await this.saveToOfflineQueue(recordingData);
 
       // Try to upload
-      await this.uploadRecording(recordingData);
+      const uploadResult = await this.uploadRecording(recordingData);
+      return uploadResult;
 
     } catch (error) {
       console.error('[ACR Watcher] Error processing SAF recording:', error);
+      return { success: false, error: error.message };
     }
   }
 
@@ -709,12 +786,10 @@ class ACRPhoneRecordingWatcher {
       console.log('[ACR Watcher] Is SAF file:', recording.isSAF || false);
 
       // Check if file still exists
-      // Za SAF fajlove (kopirane u cache) koristi expo-file-system
-      // Za RNFS fajlove koristi RNFS
       let fileExists = false;
 
-      if (recording.isSAF || recording.filePath.includes('cache')) {
-        // SAF fajl kopiran u cache - koristi expo-file-system
+      if (recording.isSAF || recording.filePath.startsWith('file://')) {
+        // SAF fajl kopiran u cache - koristi FileSystem legacy
         const info = await FileSystem.getInfoAsync(recording.filePath);
         fileExists = info.exists;
       } else if (RNFS) {
@@ -772,13 +847,15 @@ class ACRPhoneRecordingWatcher {
       formData.append('originalFileName', recording.fileName);
       formData.append('fileUniqueId', recording.fileUniqueId);
 
-      // Get auth token
-      const token = await AsyncStorage.getItem('token');
+      // Get auth token - koristi storage.getItem koji pravilno parsira JSON
+      const token = await storage.getItem('token');
 
       if (!token) {
         console.error('[ACR Watcher] No auth token found');
-        return { success: false, reason: 'no_token' };
+        return { success: false, reason: 'no_token', error: 'Nema auth tokena - prijavite se ponovo' };
       }
+
+      console.log('[ACR Watcher] Token loaded successfully');
 
       console.log('[ACR Watcher] Sending to:', `${API_URL}/api/workorders/voice-recordings/upload`);
 
@@ -808,22 +885,51 @@ class ACRPhoneRecordingWatcher {
         return { success: true, workOrderId: result.workOrderId };
       } else {
         console.error('[ACR Watcher] ❌ Upload failed:', response.status);
+        console.error('[ACR Watcher] Response:', responseText);
+
+        // Parse error message from server if available
+        let serverError = '';
+        try {
+          const errorData = JSON.parse(responseText);
+          serverError = errorData.message || errorData.error || '';
+        } catch (e) {
+          serverError = responseText.substring(0, 100);
+        }
 
         // If it's a 404 error (no matching work order), remove from queue
         if (response.status === 404) {
           console.log('[ACR Watcher] No matching work order found, removing from queue');
           await this.removeFromOfflineQueue(recording.id);
-          return { success: false, reason: 'no_matching_workorder' };
+          return {
+            success: false,
+            reason: 'no_matching_workorder',
+            error: `Nije pronađen radni nalog za broj ${recording.customerPhone} (${serverError})`
+          };
         }
 
         // If duplicate on server
         if (response.status === 409) {
           console.log('[ACR Watcher] Duplicate on server, removing from queue');
           await this.removeFromOfflineQueue(recording.id);
-          return { success: false, reason: 'duplicate' };
+          return { success: false, reason: 'duplicate', error: 'Snimak već postoji na serveru' };
         }
 
-        return { success: false, reason: 'upload_failed', status: response.status };
+        // Server error
+        if (response.status >= 500) {
+          return {
+            success: false,
+            reason: 'server_error',
+            error: `Server greška (${response.status}): ${serverError}`
+          };
+        }
+
+        // Other client errors
+        return {
+          success: false,
+          reason: 'upload_failed',
+          status: response.status,
+          error: `Upload nije uspeo (${response.status}): ${serverError}`
+        };
       }
 
     } catch (error) {
@@ -890,6 +996,28 @@ class ACRPhoneRecordingWatcher {
       console.error('[ACR Watcher] Error getting queue status:', error);
       return { total: 0, pending: 0, uploaded: 0 };
     }
+  }
+
+  /**
+   * Resetuj listu obrađenih fajlova - omogućava ponovo procesiranje svih fajlova
+   */
+  async resetProcessedFiles() {
+    try {
+      this.processedFiles.clear();
+      await AsyncStorage.removeItem('processedACRRecordings');
+      console.log('[ACR Watcher] ✅ Processed files list cleared');
+      return { success: true, message: 'Lista obrađenih fajlova je resetovana' };
+    } catch (error) {
+      console.error('[ACR Watcher] Error resetting processed files:', error);
+      return { success: false, message: error.message };
+    }
+  }
+
+  /**
+   * Dobij broj obrađenih fajlova
+   */
+  getProcessedFilesCount() {
+    return this.processedFiles.size;
   }
 
   // Očisti stare processed files (starije od 7 dana)

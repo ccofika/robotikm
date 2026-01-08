@@ -162,4 +162,9 @@ export const notificationsAPI = {
   registerToken: (pushToken) => api.post('/api/android-notifications/register-token', { pushToken }),
 };
 
+// GPS API
+export const gpsAPI = {
+  sendLocation: (data) => api.post('/api/gps/location', data),
+};
+
 export default api;

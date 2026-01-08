@@ -22,3 +22,7 @@ android/.gradle/
 
 # Temporary files created by Metro to check the health of the file watcher
 .metro-health-check*
+
+# Firebase credentials (keep locally, never commit)
+robotik-mobile-firebase-adminsdk-fbsvc-29bcbbb902.json
+*.json

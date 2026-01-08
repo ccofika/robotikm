@@ -18,7 +18,8 @@
 import { Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
-import * as FileSystem from 'expo-file-system';
+// SDK 54: koristi legacy API umesto novog
+import * as FileSystem from 'expo-file-system/legacy';
 
 const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -450,42 +451,56 @@ class SAFStorageService {
    */
   async copyFileToCache(uri, fileName) {
     if (!SAF) {
-      console.error('[SAF Service] Cannot copy file - SAF library not loaded');
-      return null;
+      throw new Error('SAF biblioteka nije učitana');
     }
 
+    // Koristi expo-file-system legacy cache directory
+    const destPath = FileSystem.cacheDirectory + fileName;
+
+    console.log('[SAF Service] Copying file to cache...');
+    console.log('[SAF Service]   From:', uri);
+    console.log('[SAF Service]   To:', destPath);
+
+    // Čitaj fajl kao base64 koristeći SAF
+    let base64Content;
     try {
-      const cacheDir = FileSystem.cacheDirectory;
-      const destPath = cacheDir + fileName;
+      base64Content = await SAF.readFile(uri, { encoding: 'base64' });
+    } catch (readError) {
+      console.error('[SAF Service] Failed to read file:', readError);
+      throw new Error(`Greška pri čitanju fajla: ${readError.message}`);
+    }
 
-      console.log('[SAF Service] Copying file to cache...');
-      console.log('[SAF Service]   From:', uri);
-      console.log('[SAF Service]   To:', destPath);
+    if (!base64Content) {
+      throw new Error('SAF.readFile vratio prazan sadržaj');
+    }
 
-      // Čitaj fajl kao base64
-      const base64Content = await SAF.readFile(uri, { encoding: 'base64' });
+    console.log('[SAF Service] Read base64 content, length:', base64Content.length);
 
-      if (!base64Content) {
-        console.error('[SAF Service] Failed to read file content');
-        return null;
-      }
-
-      // Piši u cache koristeći expo-file-system
+    // Piši u cache koristeći expo-file-system legacy API
+    try {
       await FileSystem.writeAsStringAsync(destPath, base64Content, {
         encoding: FileSystem.EncodingType.Base64
       });
-
-      console.log('[SAF Service] ✅ File copied successfully');
-
-      // Verifikuj
-      const info = await FileSystem.getInfoAsync(destPath);
-      console.log('[SAF Service] Copied file size:', info.size, 'bytes');
-
-      return destPath;
-    } catch (error) {
-      console.error('[SAF Service] copyFileToCache error:', error);
-      return null;
+    } catch (writeError) {
+      console.error('[SAF Service] Failed to write file:', writeError);
+      throw new Error(`Greška pri pisanju u cache: ${writeError.message}`);
     }
+
+    console.log('[SAF Service] ✅ File copied successfully');
+
+    // Verifikuj
+    const info = await FileSystem.getInfoAsync(destPath);
+    if (!info.exists) {
+      throw new Error('Fajl nije kreiran u cache direktorijumu');
+    }
+
+    console.log('[SAF Service] Copied file size:', info.size, 'bytes');
+
+    if (info.size === 0) {
+      throw new Error('Kopirani fajl ima veličinu 0 bajtova');
+    }
+
+    return destPath;
   }
 
   /**
