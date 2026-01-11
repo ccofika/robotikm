@@ -31,6 +31,7 @@ export default function WorkOrdersScreen({ navigation }) {
   const [processedCount, setProcessedCount] = useState(0);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [syncPassword, setSyncPassword] = useState('');
+  const [showSyncPassword, setShowSyncPassword] = useState(false);
 
   // Proveri SAF status na mount
   useEffect(() => {
@@ -667,22 +668,35 @@ export default function WorkOrdersScreen({ navigation }) {
                 borderRadius: 12,
                 paddingHorizontal: 14,
                 paddingVertical: 12,
-                marginBottom: 16
+                marginBottom: 16,
+                flexDirection: 'row',
+                alignItems: 'center'
               }}>
                 <InputField
                   placeholder="Šifra..."
                   value={syncPassword}
                   onChangeText={setSyncPassword}
-                  secureTextEntry={true}
+                  secureTextEntry={!showSyncPassword}
                   style={{
                     fontSize: 16,
                     color: '#111827',
                     fontWeight: '500',
-                    padding: 0
+                    padding: 0,
+                    flex: 1
                   }}
                   placeholderTextColor="#9ca3af"
                   onSubmitEditing={handlePasswordSubmit}
                 />
+                <Pressable
+                  onPress={() => setShowSyncPassword(!showSyncPassword)}
+                  style={{ padding: 8, marginLeft: 4 }}
+                >
+                  <Ionicons
+                    name={showSyncPassword ? "eye-outline" : "eye-off-outline"}
+                    size={20}
+                    color="#6b7280"
+                  />
+                </Pressable>
               </View>
 
               <View style={{ flexDirection: 'row', gap: 10 }}>

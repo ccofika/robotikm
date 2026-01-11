@@ -1893,9 +1893,13 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
       {/* Materials Modal - Material Design 3 */}
       <Modal visible={showMaterialsModal} animationType="slide" transparent onRequestClose={() => setShowMaterialsModal(false)}>
-        <Pressable onPress={() => setShowMaterialsModal(false)} className="flex-1 bg-black/50 justify-end">
-          <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl">
-            <VStack className="px-6 pt-6" style={{ paddingBottom: Math.max(insets.bottom + 8, 32) }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <Pressable onPress={() => setShowMaterialsModal(false)} className="flex-1 bg-black/50 justify-end">
+            <Pressable onPress={(e) => e.stopPropagation()} className="bg-white rounded-t-3xl">
+              <VStack className="px-6 pt-6" style={{ paddingBottom: Math.max(insets.bottom + 8, 32) }}>
               {/* Header */}
               <HStack className="items-center justify-between mb-6">
                 <HStack space="sm" className="items-center">
@@ -1991,9 +1995,10 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                   </HStack>
                 </LinearGradient>
               </Pressable>
-            </VStack>
+              </VStack>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Remove Equipment Modal */}
@@ -2202,9 +2207,13 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
       {/* Postpone Modal */}
       <Modal visible={showPostponeModal} animationType="slide" transparent onRequestClose={() => setShowPostponeModal(false)}>
-        <Pressable onPress={() => setShowPostponeModal(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: insets.bottom + 20 }}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24 }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <Pressable onPress={() => setShowPostponeModal(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: insets.bottom + 20 }}>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24 }} keyboardShouldPersistTaps="handled">
               {/* Header */}
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                 <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827' }}>Odlaganje termina</Text>
@@ -2351,16 +2360,21 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                   <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>Odloži nalog</Text>
                 )}
               </Pressable>
-            </ScrollView>
+              </ScrollView>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Cancel Modal */}
       <Modal visible={showCancelModal} animationType="slide" transparent onRequestClose={() => setShowCancelModal(false)}>
-        <Pressable onPress={() => setShowCancelModal(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
-          <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: insets.bottom + 20 }}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24 }}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <Pressable onPress={() => setShowCancelModal(false)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <Pressable onPress={(e) => e.stopPropagation()} style={{ backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: insets.bottom + 20 }}>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24 }} keyboardShouldPersistTaps="handled">
               {/* Header */}
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                 <Text style={{ fontSize: 22, fontWeight: '700', color: '#111827' }}>Otkazivanje radnog naloga</Text>
@@ -2427,9 +2441,10 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                   <Text style={{ fontSize: 16, fontWeight: '700', color: '#ffffff' }}>Otkaži nalog</Text>
                 )}
               </Pressable>
-            </ScrollView>
+              </ScrollView>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Image View Modal */}

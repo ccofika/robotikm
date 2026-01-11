@@ -25,5 +25,11 @@ android/.gradle/
 
 # Firebase credentials (keep locally, never commit)
 robotik-mobile-firebase-adminsdk-fbsvc-29bcbbb902.json
-*.json
-google-services.json
+
+# Keep essential JSON files
+!package.json
+!package-lock.json
+!app.json
+!eas.json
+!tsconfig.json
+!babel.config.js
