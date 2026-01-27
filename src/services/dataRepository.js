@@ -31,14 +31,15 @@ class DataRepository {
       // 1. Vrati iz cache-a odmah
       const cached = await offlineStorage.getWorkOrders(technicianId);
 
-      // 2. Ako je online i nije force refresh, fetchuj u pozadini
-      if (networkMonitor.getIsOnline() && !forceRefresh) {
-        this.refreshWorkOrders(technicianId);
+      // 2. Ako je online i (force refresh ILI nema keširanih podataka), čekaj na server
+      if (networkMonitor.getIsOnline() && (forceRefresh || !cached || cached.length === 0)) {
+        console.log(`[DataRepository] Fetching work orders from server (forceRefresh=${forceRefresh}, cached=${cached?.length || 0})`);
+        return await this.refreshWorkOrders(technicianId);
       }
 
-      // 3. Ako je force refresh i online, čekaj na fresh data
-      if (forceRefresh && networkMonitor.getIsOnline()) {
-        return await this.refreshWorkOrders(technicianId);
+      // 3. Ako ima keširane podatke i nije force refresh, refresh u pozadini
+      if (networkMonitor.getIsOnline() && !forceRefresh) {
+        this.refreshWorkOrders(technicianId);
       }
 
       return cached;
@@ -86,9 +87,10 @@ class DataRepository {
       // Vrati iz cache-a odmah
       const cached = await offlineStorage.getWorkOrder(technicianId, workOrderId);
 
-      // Ako je online i force refresh, fetchuj sa servera
-      if (forceRefresh && networkMonitor.getIsOnline()) {
+      // Ako je online i (force refresh ILI nema keširanog naloga), fetchuj sa servera
+      if (networkMonitor.getIsOnline() && (forceRefresh || !cached)) {
         try {
+          console.log(`[DataRepository] Fetching work order ${workOrderId} from server (forceRefresh=${forceRefresh}, cached=${!!cached})`);
           const response = await workOrdersAPI.getOne(workOrderId);
           const workOrder = response.data;
 
@@ -98,6 +100,10 @@ class DataRepository {
           return workOrder;
         } catch (error) {
           console.error('[DataRepository] Error fetching work order from server:', error);
+          // Ako server fetch ne uspe ali imamo keširan nalog, vrati ga
+          if (cached) {
+            return cached;
+          }
         }
       }
 
@@ -152,12 +158,15 @@ class DataRepository {
     try {
       const cached = await offlineStorage.getEquipment(technicianId);
 
-      if (networkMonitor.getIsOnline() && !forceRefresh) {
-        this.refreshEquipment(technicianId);
+      // Ako je online i (force refresh ILI nema keširanih podataka), čekaj na server
+      if (networkMonitor.getIsOnline() && (forceRefresh || !cached || cached.length === 0)) {
+        console.log(`[DataRepository] Fetching equipment from server (forceRefresh=${forceRefresh}, cached=${cached?.length || 0})`);
+        return await this.refreshEquipment(technicianId);
       }
 
-      if (forceRefresh && networkMonitor.getIsOnline()) {
-        return await this.refreshEquipment(technicianId);
+      // Ako ima keširane podatke i nije force refresh, refresh u pozadini
+      if (networkMonitor.getIsOnline() && !forceRefresh) {
+        this.refreshEquipment(technicianId);
       }
 
       return cached;
@@ -203,12 +212,15 @@ class DataRepository {
     try {
       const cached = await offlineStorage.getMaterials(technicianId);
 
-      if (networkMonitor.getIsOnline() && !forceRefresh) {
-        this.refreshMaterials(technicianId);
+      // Ako je online i (force refresh ILI nema keširanih podataka), čekaj na server
+      if (networkMonitor.getIsOnline() && (forceRefresh || !cached || cached.length === 0)) {
+        console.log(`[DataRepository] Fetching materials from server (forceRefresh=${forceRefresh}, cached=${cached?.length || 0})`);
+        return await this.refreshMaterials(technicianId);
       }
 
-      if (forceRefresh && networkMonitor.getIsOnline()) {
-        return await this.refreshMaterials(technicianId);
+      // Ako ima keširane podatke i nije force refresh, refresh u pozadini
+      if (networkMonitor.getIsOnline() && !forceRefresh) {
+        this.refreshMaterials(technicianId);
       }
 
       return cached;
@@ -286,12 +298,17 @@ class DataRepository {
     try {
       const cached = await offlineStorage.getUserEquipment(workOrderId);
 
-      if (networkMonitor.getIsOnline() && !forceRefresh) {
-        this.refreshUserEquipment(workOrderId);
+      // Ako je online i (force refresh ILI nema keširanih podataka), čekaj na server
+      // NAPOMENA: Za userEquipment, prazan niz [] je validan rezultat (može značiti da nema opreme)
+      // Tako da samo proveravamo forceRefresh ili null/undefined cached
+      if (networkMonitor.getIsOnline() && (forceRefresh || cached === null || cached === undefined)) {
+        console.log(`[DataRepository] Fetching user equipment from server (forceRefresh=${forceRefresh})`);
+        return await this.refreshUserEquipment(workOrderId);
       }
 
-      if (forceRefresh && networkMonitor.getIsOnline()) {
-        return await this.refreshUserEquipment(workOrderId);
+      // Ako ima keširane podatke i nije force refresh, refresh u pozadini
+      if (networkMonitor.getIsOnline() && !forceRefresh) {
+        this.refreshUserEquipment(workOrderId);
       }
 
       return cached;
@@ -579,7 +596,10 @@ class DataRepository {
     try {
       const cached = await offlineStorage.getRemovedEquipment(workOrderId);
 
-      if (forceRefresh && networkMonitor.getIsOnline()) {
+      // Ako je online i (force refresh ILI nema keširanih podataka), čekaj na server
+      // NAPOMENA: Za removedEquipment, prazan niz [] je validan rezultat
+      if (networkMonitor.getIsOnline() && (forceRefresh || cached === null || cached === undefined)) {
+        console.log(`[DataRepository] Fetching removed equipment from server (forceRefresh=${forceRefresh})`);
         try {
           const response = await userEquipmentAPI.getRemovedForWorkOrder(workOrderId);
           const removedEquipment = response.data;
@@ -587,15 +607,17 @@ class DataRepository {
           return removedEquipment;
         } catch (error) {
           console.error('[DataRepository] Error fetching removed equipment:', error);
+          // Ako fetch ne uspe ali imamo keš, vrati ga
+          if (cached) return cached;
         }
       }
 
-      // Refresh u pozadini ako je online
-      if (networkMonitor.getIsOnline() && !forceRefresh) {
+      // Refresh u pozadini ako je online i ima keširane podatke
+      if (networkMonitor.getIsOnline() && !forceRefresh && cached !== null && cached !== undefined) {
         this.refreshRemovedEquipment(workOrderId);
       }
 
-      return cached;
+      return cached || [];
     } catch (error) {
       console.error('[DataRepository] Error getting removed equipment:', error);
       return [];
@@ -632,9 +654,17 @@ class DataRepository {
 
   /**
    * Upload-uje sliku za radni nalog
+   * @param {string} workOrderId - ID radnog naloga
+   * @param {string} imageUri - URI slike na uređaju
+   * @param {string} technicianId - ID tehničara
+   * @param {boolean} autoProcess - Da li automatski procesirati queue
+   * @param {string} originalFileName - Originalno ime fajla (za detekciju duplikata)
    */
-  async uploadWorkOrderImage(workOrderId, imageUri, technicianId, autoProcess = true) {
+  async uploadWorkOrderImage(workOrderId, imageUri, technicianId, autoProcess = true, originalFileName = null) {
     try {
+      // Ako nije prosleđeno originalno ime, izvuci ga iz URI-ja
+      const fileName = originalFileName || imageUri.split('/').pop();
+
       // Dodaj u sync queue sa autoProcess parametrom
       // Ovo kontroliše da li će addToQueue automatski pozvati processQueue
       await syncQueue.addToQueue({
@@ -645,7 +675,8 @@ class DataRepository {
         data: {
           workOrderId,
           imageUri,
-          technicianId
+          technicianId,
+          originalFileName: fileName // Čuvamo originalno ime za detekciju duplikata
         }
       }, autoProcess); // Prosleđujemo autoProcess parametar
 

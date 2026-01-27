@@ -24,7 +24,8 @@ class OfflineStorage {
       WORK_ORDER_IMAGES: 'workOrderImages',
       SYNC_QUEUE: 'syncQueue',
       LAST_SYNC: 'lastSync',
-      REMOVED_EQUIPMENT: 'removedEquipment'
+      REMOVED_EQUIPMENT: 'removedEquipment',
+      UPLOADED_IMAGE_NAMES: 'uploadedImageNames'
     };
   }
 
@@ -62,7 +63,7 @@ class OfflineStorage {
   }
 
   /**
-   * Ažurira pojedinačan radni nalog
+   * Ažurira pojedinačan radni nalog (ili ga dodaje ako ne postoji u kešu)
    */
   async updateWorkOrder(technicianId, workOrderId, updates) {
     try {
@@ -70,6 +71,7 @@ class OfflineStorage {
       const index = workOrders.findIndex(wo => wo._id === workOrderId);
 
       if (index !== -1) {
+        // Radni nalog postoji - ažuriraj ga
         workOrders[index] = {
           ...workOrders[index],
           ...updates,
@@ -78,7 +80,16 @@ class OfflineStorage {
         await this.saveWorkOrders(technicianId, workOrders);
         console.log(`[OfflineStorage] Updated work order ${workOrderId}`);
       } else {
-        console.warn(`[OfflineStorage] Work order ${workOrderId} not found`);
+        // Radni nalog ne postoji u kešu - dodaj ga
+        console.log(`[OfflineStorage] Work order ${workOrderId} not found in cache, adding it`);
+        const newWorkOrder = {
+          ...updates,
+          _id: workOrderId,
+          lastModified: Date.now()
+        };
+        workOrders.push(newWorkOrder);
+        await this.saveWorkOrders(technicianId, workOrders);
+        console.log(`[OfflineStorage] Added work order ${workOrderId} to cache`);
       }
     } catch (error) {
       console.error('[OfflineStorage] Error updating work order:', error);
@@ -259,6 +270,79 @@ class OfflineStorage {
     } catch (error) {
       console.error('[OfflineStorage] Error loading work order images:', error);
       return [];
+    }
+  }
+
+  // ==================== UPLOADED IMAGE NAMES (DUPLICATE DETECTION) ====================
+
+  /**
+   * Vraća set uploadovanih imena slika za tehničara
+   */
+  async getUploadedImageNames(technicianId) {
+    try {
+      const key = `${this.STORAGE_KEYS.UPLOADED_IMAGE_NAMES}_${technicianId}`;
+      const data = await storage.getItem(key);
+      return data?.imageNames || [];
+    } catch (error) {
+      console.error('[OfflineStorage] Error loading uploaded image names:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Dodaje ime slike u listu uploadovanih za tehničara
+   */
+  async addUploadedImageName(technicianId, imageName) {
+    try {
+      const key = `${this.STORAGE_KEYS.UPLOADED_IMAGE_NAMES}_${technicianId}`;
+      const existing = await this.getUploadedImageNames(technicianId);
+
+      // Dodaj samo ako već ne postoji
+      if (!existing.includes(imageName)) {
+        existing.push(imageName);
+        await storage.setItem(key, { imageNames: existing, lastModified: Date.now() });
+        console.log(`[OfflineStorage] Added uploaded image name: ${imageName}`);
+      }
+    } catch (error) {
+      console.error('[OfflineStorage] Error adding uploaded image name:', error);
+    }
+  }
+
+  /**
+   * Proverava da li je slika sa datim imenom već uploadovana
+   */
+  async isImageAlreadyUploaded(technicianId, imageName) {
+    try {
+      const uploadedNames = await this.getUploadedImageNames(technicianId);
+      return uploadedNames.includes(imageName);
+    } catch (error) {
+      console.error('[OfflineStorage] Error checking if image is uploaded:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Proverava koje slike od datih su već uploadovane
+   * Vraća objekat sa listama: { duplicates: [...], newImages: [...] }
+   */
+  async checkDuplicateImages(technicianId, imageNames) {
+    try {
+      const uploadedNames = await this.getUploadedImageNames(technicianId);
+      const duplicates = [];
+      const newImages = [];
+
+      for (const name of imageNames) {
+        if (uploadedNames.includes(name)) {
+          duplicates.push(name);
+        } else {
+          newImages.push(name);
+        }
+      }
+
+      return { duplicates, newImages };
+    } catch (error) {
+      console.error('[OfflineStorage] Error checking duplicate images:', error);
+      return { duplicates: [], newImages: imageNames };
     }
   }
 

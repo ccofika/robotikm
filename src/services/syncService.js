@@ -422,6 +422,18 @@ class SyncService {
         // Ne fail-uj sync ako refresh ne uspe
       }
 
+      // Sačuvaj originalno ime slike za detekciju duplikata
+      const originalFileName = item.data.originalFileName;
+      if (originalFileName) {
+        try {
+          await offlineStorage.addUploadedImageName(technicianId, originalFileName);
+          console.log(`[SyncService] Saved uploaded image name for duplicate detection: ${originalFileName}`);
+        } catch (saveError) {
+          console.error('[SyncService] Error saving uploaded image name:', saveError);
+          // Ne fail-uj sync ako čuvanje imena ne uspe
+        }
+      }
+
       console.log(`[SyncService] Successfully synced image upload for: ${workOrderId}`);
       return true;
     } catch (error) {

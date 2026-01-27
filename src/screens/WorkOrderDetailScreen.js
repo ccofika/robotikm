@@ -12,6 +12,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { AuthContext } from '../context/AuthContext';
 import { useOffline } from '../context/OfflineContext';
 import dataRepository from '../services/dataRepository';
+import offlineStorage from '../services/offlineStorage';
 import { userEquipmentAPI } from '../services/api';
 import syncService from '../services/syncService';
 import { VStack } from '../components/ui/vstack';
@@ -96,7 +97,6 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
   // Serial removal states
   const [removalEquipmentName, setRemovalEquipmentName] = useState('');
-  const [removalEquipmentDescription, setRemovalEquipmentDescription] = useState('');
   const [removalSerialNumber, setRemovalSerialNumber] = useState('');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
 
@@ -149,11 +149,17 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
   const fetchWorkOrder = async () => {
     try {
+      console.log(`[WorkOrderDetail] Fetching work order: ${orderId} for user: ${user._id}`);
+
       // Koristi dataRepository za offline-first pristup
+      // Sada će automatski dohvatiti sa servera ako nije u kešu
       const order = await dataRepository.getWorkOrder(user._id, orderId, false);
 
+      console.log(`[WorkOrderDetail] Work order fetched:`, order ? 'found' : 'not found');
+
       if (!order) {
-        Alert.alert('Greška', 'Radni nalog nije pronađen');
+        console.error(`[WorkOrderDetail] Work order ${orderId} not found in cache or server`);
+        Alert.alert('Greška', 'Radni nalog nije pronađen. Probajte da osvežite listu radnih naloga.');
         navigation.goBack();
         return;
       }
@@ -243,13 +249,73 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
     setUploadProgress(0);
 
     try {
+      // ========== PROVERA DUPLIKATA ==========
+      // Izvuci imena slika (fileName ili iz URI-ja)
+      const imageNames = images.map(img => {
+        // Expo ImagePicker vraća fileName property
+        if (img.fileName) {
+          return img.fileName;
+        }
+        // Fallback: izvuci ime iz URI-ja
+        const uriParts = img.uri.split('/');
+        return uriParts[uriParts.length - 1];
+      });
+
+      console.log('[ImageUpload] Checking for duplicates:', imageNames);
+
+      // Proveri duplikate
+      const { duplicates, newImages } = await offlineStorage.checkDuplicateImages(user._id, imageNames);
+
+      // Ako ima duplikata, prikaži upozorenje
+      if (duplicates.length > 0) {
+        console.log(`[ImageUpload] Found ${duplicates.length} duplicate(s):`, duplicates);
+
+        // Filtriraj slike - zadrži samo nove
+        const imagesToUpload = images.filter(img => {
+          const imgName = img.fileName || img.uri.split('/').pop();
+          return !duplicates.includes(imgName);
+        });
+
+        if (imagesToUpload.length === 0) {
+          // Sve slike su duplikati
+          Alert.alert(
+            'Duplikati',
+            `Sve izabrane slike su već ranije uploadovane:\n\n${duplicates.join('\n')}`
+          );
+          setUploadingImages(false);
+          setUploadProgress(0);
+          setImages([]); // Očisti selekciju
+          return;
+        }
+
+        // Neke slike su duplikati, neke su nove
+        Alert.alert(
+          'Upozorenje',
+          `${duplicates.length} ${duplicates.length === 1 ? 'slika je već uploadovana' : 'slika su već uploadovane'} i ${duplicates.length === 1 ? 'biće preskočena' : 'biće preskočene'}:\n\n${duplicates.join('\n')}\n\nNastavlja se upload ${imagesToUpload.length} ${imagesToUpload.length === 1 ? 'nove slike' : 'novih slika'}.`
+        );
+
+        // Zameni images sa filtriranom listom
+        images.length = 0;
+        images.push(...imagesToUpload);
+      }
+
+      // Ako nema slika za upload (sve su filtrirane)
+      if (images.length === 0) {
+        setUploadingImages(false);
+        setUploadProgress(0);
+        return;
+      }
+
+      // ========== UPLOAD SLIKA ==========
       // Prvo dodaj sve slike u queue (autoProcess = false da ne poziva processQueue nakon svake)
       for (let i = 0; i < images.length; i++) {
         const image = images[i];
-        console.log(`[ImageUpload] Adding image ${i + 1}/${images.length} to queue`);
+        const imageName = image.fileName || image.uri.split('/').pop();
+        console.log(`[ImageUpload] Adding image ${i + 1}/${images.length} to queue: ${imageName}`);
 
         // Dodaj u queue (autoProcess = false ne poziva processQueue još)
-        await dataRepository.uploadWorkOrderImage(orderId, image.uri, user._id, false);
+        // Prosleđujemo originalno ime slike za detekciju duplikata
+        await dataRepository.uploadWorkOrderImage(orderId, image.uri, user._id, false, imageName);
 
         // Update progress za dodavanje u queue
         setUploadProgress(Math.round(((i + 1) / images.length) * 50)); // Prva polovina progress bara
@@ -440,8 +506,8 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   };
 
   const handleRemoveBySerial = async () => {
-    if (!removalEquipmentName.trim() || !removalEquipmentDescription.trim() || !removalSerialNumber.trim()) {
-      Alert.alert('Greška', 'Morate popuniti naziv opreme, opis i serijski broj');
+    if (!removalEquipmentName.trim() || !removalSerialNumber.trim()) {
+      Alert.alert('Greška', 'Morate popuniti kategoriju opreme i serijski broj');
       return;
     }
 
@@ -449,10 +515,11 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
     try {
       // Koristi dataRepository za offline-first uklanjanje opreme po serijskom broju
+      // Opis opreme je isti kao kategorija opreme
       const result = await dataRepository.removeEquipmentBySerial(orderId, {
         technicianId: user._id,
         equipmentName: removalEquipmentName,
-        equipmentDescription: removalEquipmentDescription,
+        equipmentDescription: removalEquipmentName, // Opis = Kategorija
         serialNumber: removalSerialNumber
       });
 
@@ -462,7 +529,6 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
         // Reset form i zatvori modal
         setRemovalEquipmentName('');
-        setRemovalEquipmentDescription('');
         setRemovalSerialNumber('');
         setShowRemoveBySerialModal(false);
 
@@ -479,7 +545,6 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
       // Reset form
       setRemovalEquipmentName('');
-      setRemovalEquipmentDescription('');
       setRemovalSerialNumber('');
       setShowRemoveBySerialModal(false);
 
@@ -2161,17 +2226,6 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                   </VStack>
 
                   <VStack space="xs">
-                    <Text size="sm" bold className="text-gray-700">Opis opreme</Text>
-                    <Input variant="outline" size="lg" className="bg-gray-50">
-                      <InputField
-                        placeholder="Unesite opis opreme..."
-                        value={removalEquipmentDescription}
-                        onChangeText={setRemovalEquipmentDescription}
-                      />
-                    </Input>
-                  </VStack>
-
-                  <VStack space="xs">
                     <Text size="sm" bold className="text-gray-700">Serijski broj</Text>
                     <Input variant="outline" size="lg" className="bg-gray-50">
                       <InputField
@@ -2187,7 +2241,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                     size="lg"
                     onPress={handleRemoveBySerial}
                     className="mt-4 rounded-2xl py-4"
-                    isDisabled={saving || !removalEquipmentName.trim() || !removalEquipmentDescription.trim() || !removalSerialNumber.trim()}
+                    isDisabled={saving || !removalEquipmentName.trim() || !removalSerialNumber.trim()}
                   >
                     {saving ? (
                       <ButtonSpinner />

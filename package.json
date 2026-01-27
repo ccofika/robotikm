@@ -24,16 +24,15 @@
     "caniuse-lite": "^1.0.30001751",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "eas-cli": "^16.26.0",
-    "expo": "^54.0.23",
-    "expo-constants": "~18.0.9",
+    "expo": "54.0.31",
+    "expo-constants": "18.0.13",
     "expo-device": "~8.0.9",
     "expo-file-system": "^19.0.17",
     "expo-image-picker": "~17.0.8",
     "expo-intent-launcher": "^13.0.7",
     "expo-linear-gradient": "~15.0.7",
     "expo-location": "~19.0.8",
-    "expo-notifications": "~0.32.12",
+    "expo-notifications": "0.32.16",
     "expo-status-bar": "~3.0.8",
     "expo-system-ui": "^6.0.9",
     "expo-task-manager": "^14.0.8",
@@ -58,7 +57,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
-    "babel-preset-expo": "^54.0.4"
+    "babel-preset-expo": "54.0.9"
   },
   "private": true
 }
