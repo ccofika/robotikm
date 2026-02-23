@@ -51,6 +51,11 @@ export default function EquipmentScreen() {
   const getCategoryConfig = (category) => {
     const cat = category?.toLowerCase() || '';
 
+    // Astra oprema - teal
+    if (cat.includes('astra')) {
+      return { icon: 'planet', color: '#0891b2', label: 'Astra' };
+    }
+
     // HFC/GPON/PON Modemi - plava
     if (cat.includes('hfc') || cat.includes('modem') || cat.includes('gpon') || cat.includes('pon')) {
       return { icon: 'wifi', color: '#3b82f6', label: 'Modem' };

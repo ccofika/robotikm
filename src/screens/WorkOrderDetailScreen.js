@@ -46,6 +46,11 @@ const EQUIPMENT_CATEGORIES = [
   'M-OTT tv po tvom',
   'M-Hybrid',
   'M-PON',
+  'Astra Modem',
+  'Astra Stb',
+  'Astra Antena',
+  'Astra Ruter',
+  'Astra Poe napajanje',
 ];
 
 export default function WorkOrderDetailScreen({ route, navigation }) {
@@ -99,6 +104,10 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
   const [removalEquipmentName, setRemovalEquipmentName] = useState('');
   const [removalSerialNumber, setRemovalSerialNumber] = useState('');
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+
+  // Customer email state (za anketu nakon verifikacije)
+  const [customerEmail, setCustomerEmail] = useState('');
+  const customerEmailRef = React.useRef('');
 
   // Image upload states
   const [uploadingImages, setUploadingImages] = useState(false);
@@ -176,6 +185,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
 
       setWorkOrder(order);
       setComment(order.comment || '');
+      setCustomerEmail(order.customerEmail || '');
       setUsedMaterials(order.materials || []);
       setUploadedImages(order.images || []);
 
@@ -725,11 +735,16 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
             setSaving(true);
             try {
               // Koristi dataRepository za offline-first ažuriranje
-              await dataRepository.updateWorkOrder(user._id, orderId, {
+              const updateData = {
                 status: 'zavrsen',
                 comment,
                 completedAt: new Date().toISOString()
-              });
+              };
+              // Dodaj email korisnika ako je unet
+              if (customerEmail && customerEmail.trim() !== '') {
+                updateData.customerEmail = customerEmail.trim();
+              }
+              await dataRepository.updateWorkOrder(user._id, orderId, updateData);
 
               const message = isOnline
                 ? 'Radni nalog je završen'
@@ -786,7 +801,8 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         postponeDate: formattedDate,
         postponeTime: formattedTime,
         postponeComment: postponeComment.trim(),
-        comment
+        comment,
+        ...(customerEmail.trim() && { customerEmail: customerEmail.trim() })
       });
 
       const message = isOnline
@@ -820,7 +836,8 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       await dataRepository.updateWorkOrder(user._id, orderId, {
         status: 'otkazan',
         cancelComment: cancelComment.trim(),
-        comment
+        comment,
+        ...(customerEmail.trim() && { customerEmail: customerEmail.trim() })
       });
 
       const message = isOnline
@@ -839,6 +856,22 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
       Alert.alert('Greška', errorMessage);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveCustomerEmail = async (email) => {
+    const trimmed = email.trim();
+    // Ne šalji ako je ista vrednost kao u bazi
+    if (trimmed === (workOrder?.customerEmail || '')) return;
+    try {
+      await dataRepository.updateWorkOrder(user._id, orderId, {
+        customerEmail: trimmed
+      });
+      // Ažuriraj lokalni workOrder objekat
+      setWorkOrder(prev => prev ? { ...prev, customerEmail: trimmed } : prev);
+      console.log('[WorkOrderDetail] customerEmail sačuvan:', trimmed);
+    } catch (error) {
+      console.error('[WorkOrderDetail] Greška pri čuvanju email-a:', error);
     }
   };
 
@@ -1073,8 +1106,7 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
         </View>
 
         {/* Contact Section - Modern Card */}
-        {(workOrder.userName || workOrder.userPhone) && (
-          <View style={{
+        <View style={{
             backgroundColor: '#ffffff',
             marginHorizontal: 20,
             marginTop: 12,
@@ -1125,8 +1157,37 @@ export default function WorkOrderDetailScreen({ route, navigation }) {
                 </Text>
               </Pressable>
             )}
+
+            {/* Email korisnika za anketu */}
+            <View style={{ marginTop: 14 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#6b7280', marginBottom: 6 }}>
+                Email korisnika (opciono)
+              </Text>
+              <View style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                backgroundColor: '#f9fafb',
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: '#e5e7eb',
+                paddingHorizontal: 12,
+              }}>
+                <Ionicons name="mail-outline" size={20} color="#6b7280" style={{ marginRight: 8 }} />
+                <Input style={{ flex: 1, borderWidth: 0, backgroundColor: 'transparent' }}>
+                  <InputField
+                    placeholder="email@primer.com"
+                    value={customerEmail}
+                    onChangeText={setCustomerEmail}
+                    onBlur={() => saveCustomerEmail(customerEmail)}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    style={{ fontSize: 14, color: '#111827', paddingVertical: 12 }}
+                  />
+                </Input>
+              </View>
+            </View>
           </View>
-        )}
 
         {/* Details Section - Modern Card */}
         {workOrder.details && (
