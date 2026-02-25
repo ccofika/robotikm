@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
 import { useOffline } from '../context/OfflineContext';
 import dataRepository from '../services/dataRepository';
+import { authAPI } from '../services/api';
 import { SyncStatusIndicator } from '../components/offline';
 import { VStack } from '../components/ui/vstack';
 import { HStack } from '../components/ui/hstack';
@@ -32,6 +33,7 @@ export default function WorkOrdersScreen({ navigation }) {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [syncPassword, setSyncPassword] = useState('');
   const [showSyncPassword, setShowSyncPassword] = useState(false);
+  const [validatingPassword, setValidatingPassword] = useState(false);
 
   // Proveri SAF status na mount
   useEffect(() => {
@@ -106,14 +108,19 @@ export default function WorkOrdersScreen({ navigation }) {
     setSyncPassword('');
   };
 
-  const handlePasswordSubmit = () => {
-    if (syncPassword === 'Robotik2023!') {
+  const handlePasswordSubmit = async () => {
+    if (!syncPassword || validatingPassword) return;
+    setValidatingPassword(true);
+    try {
+      await authAPI.login({ name: user?.name, password: syncPassword });
       setShowPasswordModal(false);
       setSyncPassword('');
       setShowSyncModal(true);
-    } else {
+    } catch (error) {
       Alert.alert('Greška', 'Pogrešna šifra');
       setSyncPassword('');
+    } finally {
+      setValidatingPassword(false);
     }
   };
 
@@ -715,17 +722,21 @@ export default function WorkOrdersScreen({ navigation }) {
                 </Pressable>
                 <Pressable
                   onPress={handlePasswordSubmit}
+                  disabled={validatingPassword}
                   style={{
                     flex: 1,
-                    backgroundColor: '#2563eb',
+                    backgroundColor: validatingPassword ? '#93b4f4' : '#2563eb',
                     borderRadius: 12,
                     paddingVertical: 14
                   }}
                 >
-                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#ffffff', textAlign: 'center' }}>
-                    Potvrdi
-                  </Text>
-                </Pressable>
+                  {validatingPassword ? (
+                    <ActivityIndicator size="small" color="#ffffff" />
+                  ) : (
+                    <Text style={{ fontSize: 15, fontWeight: '600', color: '#ffffff', textAlign: 'center' }}>
+                      Potvrdi
+                    </Text>
+                  )}
               </View>
             </View>
           </Pressable>
