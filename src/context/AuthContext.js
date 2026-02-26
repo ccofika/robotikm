@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect } from 'react';
 import { storage } from '../utils/storage';
-import { authAPI } from '../services/api';
+import { authAPI, notificationsAPI } from '../services/api';
 
 export const AuthContext = createContext({
   user: null,
@@ -59,6 +59,15 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     try {
+      // Odjavi push token sa servera PRE brisanja auth tokena
+      try {
+        await notificationsAPI.unregisterToken();
+        console.log('[Auth] Push token unregistered from server');
+      } catch (tokenError) {
+        // Nije kritično - token će ostati ali neće smetati
+        console.warn('[Auth] Failed to unregister push token:', tokenError.message);
+      }
+
       setUser(null);
       await storage.removeItem('user');
       await storage.removeItem('token');

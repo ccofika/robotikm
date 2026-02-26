@@ -32,19 +32,72 @@ class OfflineStorage {
   // ==================== WORK ORDERS ====================
 
   /**
-   * Čuva radne naloge za tehničara
+   * Čuva radne naloge za tehničara.
+   * Automatski filtrira stare završene naloge pre čuvanja da bi se uštedeo prostor.
    */
   async saveWorkOrders(technicianId, workOrders) {
     try {
       const key = `${this.STORAGE_KEYS.WORK_ORDERS}_${technicianId}`;
+
+      // Pre čuvanja, filtriraj stare završene naloge
+      const filteredWorkOrders = this._filterWorkOrdersForStorage(workOrders);
+
       const data = {
-        workOrders,
+        workOrders: filteredWorkOrders,
         lastModified: Date.now()
       };
       await storage.setItem(key, data);
+
+      if (filteredWorkOrders.length < workOrders.length) {
+        console.log(`[OfflineStorage] Offline cache: filtered out ${workOrders.length - filteredWorkOrders.length} old completed work orders (cached ${filteredWorkOrders.length} for offline use)`);
+
+        // Obriši per-workOrder podatke za filtrirane naloge
+        const filteredIds = new Set(filteredWorkOrders.map(wo => wo._id));
+        const removedIds = workOrders
+          .filter(wo => !filteredIds.has(wo._id))
+          .map(wo => wo._id);
+        await this._cleanupRemovedWorkOrderData(removedIds);
+      }
     } catch (error) {
       console.error('[OfflineStorage] Error saving work orders:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Filtrira radne naloge za čuvanje - čuva samo aktivne + nedavno završene (24h)
+   */
+  _filterWorkOrdersForStorage(workOrders) {
+    const now = Date.now();
+    const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+    const completedStatuses = ['zavrsen', 'completed', 'cancelled', 'otkazan'];
+
+    return workOrders.filter(wo => {
+      const status = (wo.status || '').toLowerCase();
+      if (!completedStatuses.includes(status)) return true;
+
+      const completedAt = wo.completedAt || wo.lastModified || wo.updatedAt;
+      const completedTime = completedAt ? new Date(completedAt).getTime() : 0;
+      return (now - completedTime) < TWENTY_FOUR_HOURS;
+    });
+  }
+
+  /**
+   * Čisti per-workOrder podatke za uklonjene naloge (fire-and-forget)
+   */
+  async _cleanupRemovedWorkOrderData(removedWorkOrderIds) {
+    try {
+      if (!removedWorkOrderIds || removedWorkOrderIds.length === 0) return;
+
+      const keysToRemove = [];
+      for (const woId of removedWorkOrderIds) {
+        keysToRemove.push(`${this.STORAGE_KEYS.USER_EQUIPMENT}_${woId}`);
+        keysToRemove.push(`${this.STORAGE_KEYS.REMOVED_EQUIPMENT}_${woId}`);
+        keysToRemove.push(`${this.STORAGE_KEYS.WORK_ORDER_IMAGES}_${woId}`);
+      }
+      await storage.multiRemove(keysToRemove);
+    } catch (error) {
+      console.error('[OfflineStorage] Error cleaning up removed work order data:', error);
     }
   }
 
@@ -373,6 +426,160 @@ class OfflineStorage {
     }
   }
 
+  // ==================== DATA PRUNING ====================
+
+  /**
+   * Čisti završene radne naloge iz lokalnog storage-a.
+   * Čuva samo aktivne naloge + naloge završene u poslednjih 24h.
+   * Takođe briše povezane userEquipment/removedEquipment/images ključeve za uklonjene naloge.
+   */
+  async pruneCompletedWorkOrders(technicianId) {
+    try {
+      const workOrders = await this.getWorkOrders(technicianId);
+      if (!workOrders || workOrders.length === 0) return { pruned: 0, kept: 0 };
+
+      const now = Date.now();
+      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+
+      // Statusi koji znače "završen"
+      const completedStatuses = ['zavrsen', 'completed', 'cancelled', 'otkazan'];
+
+      const activeWorkOrders = [];
+      const prunedWorkOrderIds = [];
+
+      for (const wo of workOrders) {
+        const status = (wo.status || '').toLowerCase();
+        const isCompleted = completedStatuses.includes(status);
+
+        if (!isCompleted) {
+          // Aktivan nalog - zadrži
+          activeWorkOrders.push(wo);
+        } else {
+          // Završen nalog - proveri koliko davno
+          const completedAt = wo.completedAt || wo.lastModified || wo.updatedAt;
+          const completedTime = completedAt ? new Date(completedAt).getTime() : 0;
+          const age = now - completedTime;
+
+          if (age < TWENTY_FOUR_HOURS) {
+            // Završen nedavno - zadrži
+            activeWorkOrders.push(wo);
+          } else {
+            // Star završen nalog - pruniraj
+            prunedWorkOrderIds.push(wo._id);
+          }
+        }
+      }
+
+      if (prunedWorkOrderIds.length === 0) {
+        return { pruned: 0, kept: activeWorkOrders.length };
+      }
+
+      // Sačuvaj samo aktivne naloge
+      await this.saveWorkOrders(technicianId, activeWorkOrders);
+
+      // Obriši povezane per-workOrder ključeve
+      const keysToRemove = [];
+      for (const woId of prunedWorkOrderIds) {
+        keysToRemove.push(`${this.STORAGE_KEYS.USER_EQUIPMENT}_${woId}`);
+        keysToRemove.push(`${this.STORAGE_KEYS.REMOVED_EQUIPMENT}_${woId}`);
+        keysToRemove.push(`${this.STORAGE_KEYS.WORK_ORDER_IMAGES}_${woId}`);
+      }
+
+      if (keysToRemove.length > 0) {
+        await storage.multiRemove(keysToRemove);
+      }
+
+      console.log(`[OfflineStorage] Pruned ${prunedWorkOrderIds.length} completed work orders, kept ${activeWorkOrders.length}`);
+      return { pruned: prunedWorkOrderIds.length, kept: activeWorkOrders.length };
+    } catch (error) {
+      console.error('[OfflineStorage] Error pruning completed work orders:', error);
+      return { pruned: 0, kept: 0 };
+    }
+  }
+
+  /**
+   * Čisti orphan per-workOrder ključeve koji više nemaju odgovarajući radni nalog.
+   */
+  async cleanOrphanedWorkOrderData(technicianId) {
+    try {
+      const workOrders = await this.getWorkOrders(technicianId);
+      const activeWorkOrderIds = new Set(workOrders.map(wo => wo._id));
+
+      const allKeys = await storage.getAllKeys();
+      const prefixes = [
+        this.STORAGE_KEYS.USER_EQUIPMENT + '_',
+        this.STORAGE_KEYS.REMOVED_EQUIPMENT + '_',
+        this.STORAGE_KEYS.WORK_ORDER_IMAGES + '_'
+      ];
+
+      const keysToRemove = [];
+      for (const key of allKeys) {
+        for (const prefix of prefixes) {
+          if (key.startsWith(prefix)) {
+            const woId = key.substring(prefix.length);
+            if (!activeWorkOrderIds.has(woId)) {
+              keysToRemove.push(key);
+            }
+          }
+        }
+      }
+
+      if (keysToRemove.length > 0) {
+        await storage.multiRemove(keysToRemove);
+        console.log(`[OfflineStorage] Cleaned ${keysToRemove.length} orphaned work order data keys`);
+      }
+
+      return keysToRemove.length;
+    } catch (error) {
+      console.error('[OfflineStorage] Error cleaning orphaned data:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Čisti uploadovane image names starije od 7 dana
+   */
+  async pruneUploadedImageNames(technicianId) {
+    try {
+      const key = `${this.STORAGE_KEYS.UPLOADED_IMAGE_NAMES}_${technicianId}`;
+      const data = await storage.getItem(key);
+      if (!data || !data.imageNames) return;
+
+      // Čuvamo max 200 najnovijih imena
+      if (data.imageNames.length > 200) {
+        data.imageNames = data.imageNames.slice(-200);
+        await storage.setItem(key, { imageNames: data.imageNames, lastModified: Date.now() });
+        console.log(`[OfflineStorage] Pruned uploaded image names to 200`);
+      }
+    } catch (error) {
+      console.error('[OfflineStorage] Error pruning uploaded image names:', error);
+    }
+  }
+
+  /**
+   * Pokreće kompletan ciklus čišćenja storage-a
+   */
+  async performStorageCleanup(technicianId) {
+    try {
+      console.log('[OfflineStorage] Starting storage cleanup...');
+
+      const pruneResult = await this.pruneCompletedWorkOrders(technicianId);
+      const orphansRemoved = await this.cleanOrphanedWorkOrderData(technicianId);
+      await this.pruneUploadedImageNames(technicianId);
+
+      console.log(`[OfflineStorage] Storage cleanup complete: pruned ${pruneResult.pruned} work orders, removed ${orphansRemoved} orphan keys, kept ${pruneResult.kept} active work orders`);
+
+      return {
+        prunedWorkOrders: pruneResult.pruned,
+        orphanKeysRemoved: orphansRemoved,
+        activeWorkOrders: pruneResult.kept
+      };
+    } catch (error) {
+      console.error('[OfflineStorage] Error during storage cleanup:', error);
+      return null;
+    }
+  }
+
   // ==================== UTILITY ====================
 
   /**
@@ -383,14 +590,28 @@ class OfflineStorage {
       const keys = [
         `${this.STORAGE_KEYS.WORK_ORDERS}_${technicianId}`,
         `${this.STORAGE_KEYS.EQUIPMENT}_${technicianId}`,
-        `${this.STORAGE_KEYS.MATERIALS}_${technicianId}`
+        `${this.STORAGE_KEYS.MATERIALS}_${technicianId}`,
+        `${this.STORAGE_KEYS.UPLOADED_IMAGE_NAMES}_${technicianId}`
       ];
 
-      for (const key of keys) {
-        await storage.removeItem(key);
+      // Takođe obriši per-workOrder ključeve
+      const allKeys = await storage.getAllKeys();
+      const prefixes = [
+        this.STORAGE_KEYS.USER_EQUIPMENT + '_',
+        this.STORAGE_KEYS.REMOVED_EQUIPMENT + '_',
+        this.STORAGE_KEYS.WORK_ORDER_IMAGES + '_'
+      ];
+      for (const key of allKeys) {
+        for (const prefix of prefixes) {
+          if (key.startsWith(prefix)) {
+            keys.push(key);
+          }
+        }
       }
 
-      console.log(`[OfflineStorage] Cleared all data for technician ${technicianId}`);
+      await storage.multiRemove(keys);
+
+      console.log(`[OfflineStorage] Cleared all data for technician ${technicianId} (${keys.length} keys)`);
     } catch (error) {
       console.error('[OfflineStorage] Error clearing technician data:', error);
       throw error;

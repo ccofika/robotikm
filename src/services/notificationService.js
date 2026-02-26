@@ -139,12 +139,6 @@ class NotificationService {
       console.log('isExpoGo:', isExpoGo);
       await this.sendDebugToServer('EXPO_CHECK', { isExpoGo, appOwnership: Constants.appOwnership });
 
-      // NAPOMENA: U SDK 53+, push notifikacije NE rade u Expo Go na Androidu
-      // Ali dopusti registraciju da se proba
-      if (isExpoGo) {
-        console.log('⚠️ Running in Expo Go - push notifications may not work on Android SDK 53+');
-      }
-
       // Kreiraj sve notification kanale za Android PRVO (Android 13+ zahteva ovo)
       console.log('Setting up notification channels FIRST (required for Android 13+)...');
       const channelsCreated = await setupNotificationChannels();

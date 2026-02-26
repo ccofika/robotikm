@@ -3,16 +3,15 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert
+  Alert,
+  Modal,
+  Pressable
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
-import { authAPI, notificationsAPI } from '../services/api';
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
-import Constants from 'expo-constants';
+import { authAPI } from '../services/api';
 import { VStack } from '../components/ui/vstack';
 import { HStack } from '../components/ui/hstack';
 import { Box } from '../components/ui/box';
@@ -31,58 +30,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
-
-  // Registracija push tokena odmah nakon uspešnog logina
-  const registerPushToken = async () => {
-    try {
-      console.log('=== REGISTERING PUSH TOKEN (LoginScreen) ===');
-
-      // Provera uslova
-      if (!Device.isDevice) {
-        console.log('Push skip: Not a physical device');
-        return;
-      }
-
-      const isExpoGo = Constants.appOwnership === 'expo';
-      if (isExpoGo) {
-        console.log('Push skip: Running in Expo Go');
-        return;
-      }
-
-      // Proveri dozvolu
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-
-      if (existingStatus !== 'granted') {
-        console.log('Requesting notification permission...');
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-
-      if (finalStatus !== 'granted') {
-        console.log('Push skip: Permission not granted');
-        return;
-      }
-
-      // Dobij token
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-      console.log('Getting push token with projectId:', projectId);
-
-      const tokenData = await Notifications.getExpoPushTokenAsync(
-        projectId ? { projectId } : {}
-      );
-
-      console.log('Push token obtained:', tokenData.data);
-
-      // Pošalji na backend
-      const response = await notificationsAPI.registerToken(tokenData.data);
-      console.log('Push token registered on backend:', response.data);
-
-    } catch (error) {
-      console.error('Push token registration error:', error);
-      // Ne prikazuj grešku korisniku - nije kritično
-    }
-  };
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
 
   const handleLogin = async () => {
     const newErrors = {};
@@ -114,11 +62,8 @@ export default function LoginScreen() {
         return;
       }
 
-      // Sačuvaj korisnika
+      // Sačuvaj korisnika (NotificationContext automatski registruje push token)
       await login(user, token);
-
-      // Registruj push token ODMAH nakon uspešnog logina
-      registerPushToken();
 
       Alert.alert('Uspešno', 'Dobrodošli!');
     } catch (error) {
@@ -242,10 +187,111 @@ export default function LoginScreen() {
               <VStack space="xs" className="mt-6 pt-6 border-t border-slate-200 items-center">
                 <Text size="xs" className="text-slate-500">&copy; 2024 TelCo Inventory System</Text>
                 <Text size="xs" className="text-slate-400">Verzija 1.0</Text>
+                <Pressable onPress={() => setShowPrivacyPolicy(true)} className="mt-2">
+                  <Text size="xs" className="text-blue-500 underline">Privacy Policy</Text>
+                </Pressable>
               </VStack>
             </VStack>
           </Card>
         </ScrollView>
+
+        {/* Privacy Policy Modal */}
+        <Modal
+          visible={showPrivacyPolicy}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowPrivacyPolicy(false)}
+        >
+          <Box className="flex-1 bg-white" style={{ paddingTop: insets.top }}>
+            <HStack className="px-4 py-3 border-b border-slate-200 items-center justify-between">
+              <Heading size="lg" className="text-slate-900">Privacy Policy</Heading>
+              <Pressable onPress={() => setShowPrivacyPolicy(false)} className="p-2">
+                <Ionicons name="close" size={24} color="#334155" />
+              </Pressable>
+            </HStack>
+            <ScrollView className="flex-1 px-5 py-4">
+              <VStack space="md">
+                <Text size="sm" className="text-slate-500">Last updated: February 2026</Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">1. Introduction</Heading>
+                <Text size="sm" className="text-slate-700 leading-5">
+                  TelCo Inventory ("we", "our", or "us") is a workforce management application designed for internal use by authorized technicians of our telecommunications company. This Privacy Policy describes how we collect, use, and protect your information.
+                </Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">2. Information We Collect</Heading>
+                <Text size="sm" className="text-slate-700 leading-5">
+                  We collect the following types of information:{'\n\n'}
+                  <Text bold>Account Information:</Text> Your name, username, and role as provided by your employer.{'\n\n'}
+                  <Text bold>Location Data (including background location):</Text> With your permission, this app collects GPS location data in the background (when the app is closed or not in use). Your location is sent to company servers approximately every 5 minutes during work hours so that administrators can track technician positions on a map for dispatching and work coordination. A persistent notification will be displayed while background tracking is active. You can disable background location tracking at any time through your device's Settings {'>'} Apps {'>'} Robotik Mobile {'>'} Permissions {'>'} Location.{'\n\n'}
+                  <Text bold>Push Notification Tokens:</Text> We store device push notification tokens to send work-related notifications such as new work order assignments and equipment updates.{'\n\n'}
+                  <Text bold>Work Data:</Text> Work orders, equipment assignments, material usage, and related photos uploaded during work activities.{'\n\n'}
+                  <Text bold>Device Information:</Text> Basic device information for app compatibility and notification delivery.
+                </Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">3. How We Use Your Information</Heading>
+                <Text size="sm" className="text-slate-700 leading-5">
+                  Your information is used exclusively for:{'\n\n'}
+                  - Managing work orders and task assignments{'\n'}
+                  - Tracking equipment and material inventory{'\n'}
+                  - Sending work-related push notifications{'\n'}
+                  - Route tracking during active work hours{'\n'}
+                  - Generating operational reports for management{'\n'}
+                  - Ensuring proper equipment accountability
+                </Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">4. Data Storage and Security</Heading>
+                <Text size="sm" className="text-slate-700 leading-5">
+                  Your data is stored securely on cloud servers with industry-standard encryption. Local data is cached on your device for offline functionality and is cleared upon logout. We implement appropriate technical and organizational measures to protect your personal data against unauthorized access, alteration, or destruction.
+                </Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">5. Data Sharing</Heading>
+                <Text size="sm" className="text-slate-700 leading-5">
+                  We do not sell, trade, or share your personal information with third parties. Your data is accessible only to authorized company administrators for operational purposes. We may use third-party cloud services (database hosting, image storage, notification delivery) which process data on our behalf under strict confidentiality agreements.
+                </Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">6. Data Retention</Heading>
+                <Text size="sm" className="text-slate-700 leading-5">
+                  Work-related data is retained for the duration of your employment and for a reasonable period thereafter as required by applicable regulations. You may request deletion of your personal data by contacting your administrator.
+                </Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">7. Your Rights</Heading>
+                <Text size="sm" className="text-slate-700 leading-5">
+                  You have the right to:{'\n\n'}
+                  - Access your personal data{'\n'}
+                  - Request correction of inaccurate data{'\n'}
+                  - Request deletion of your data{'\n'}
+                  - Withdraw consent for location tracking{'\n'}
+                  - Opt out of push notifications via device settings
+                </Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">8. Permissions</Heading>
+                <Text size="sm" className="text-slate-700 leading-5">
+                  This app may request the following permissions:{'\n\n'}
+                  <Text bold>Location (Foreground):</Text> Used to determine your current position when responding to administrator GPS requests and for work order route tracking.{'\n\n'}
+                  <Text bold>Location (Background / "Allow all the time"):</Text> Used to periodically send your GPS position to company servers every 5 minutes, even when the app is closed or not in use. This enables administrators to view technician locations on a live map for dispatching and coordination purposes. A persistent notification is displayed while background tracking is active.{'\n\n'}
+                  <Text bold>Camera/Photos:</Text> Used to capture and upload photos of completed work for documentation.{'\n\n'}
+                  <Text bold>Notifications:</Text> Used to receive work order assignments and equipment updates in real-time.{'\n\n'}
+                  All permissions are optional and the app will function with limited capabilities if permissions are denied. Background location tracking can be revoked at any time through device settings.
+                </Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">9. Children's Privacy</Heading>
+                <Text size="sm" className="text-slate-700 leading-5">
+                  This application is intended for use by employed adult technicians only. We do not knowingly collect information from children under 18 years of age.
+                </Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">10. Changes to This Policy</Heading>
+                <Text size="sm" className="text-slate-700 leading-5">
+                  We may update this Privacy Policy from time to time. Any changes will be reflected within the app. Continued use of the app after changes constitutes acceptance of the updated policy.
+                </Text>
+
+                <Heading size="md" className="text-slate-900 mt-2">11. Contact Us</Heading>
+                <Text size="sm" className="text-slate-700 leading-5 mb-8">
+                  If you have questions about this Privacy Policy or wish to exercise your data rights, please contact your company administrator or reach us at magacin.robotik@gmail.com.
+                </Text>
+              </VStack>
+            </ScrollView>
+          </Box>
+        </Modal>
       </KeyboardAvoidingView>
     </LinearGradient>
   );

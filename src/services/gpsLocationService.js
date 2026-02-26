@@ -2,8 +2,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import { Platform, Alert, Linking } from 'react-native';
 import { gpsAPI } from './api';
-
-const GPS_LOCATION_TASK = 'GPS_LOCATION_TASK';
+import { BACKGROUND_LOCATION_TASK } from './backgroundLocationTask';
 
 class GPSLocationService {
   constructor() {
@@ -11,6 +10,7 @@ class GPSLocationService {
     this.hasPermission = false;
     this.hasForegroundPermission = false;
     this.hasBackgroundPermission = false;
+    this.isBackgroundTrackingActive = false;
   }
 
   /**
@@ -237,6 +237,66 @@ class GPSLocationService {
     } catch (error) {
       console.error('[GPSLocationService] Error handling GPS request:', error);
       return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Pokreni periodično praćenje lokacije u pozadini
+   * Šalje lokaciju na server svakih 5 minuta ili na 100m pomeranja
+   */
+  async startBackgroundTracking() {
+    try {
+      // Proveri da li je već aktivno
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      if (hasStarted) {
+        console.log('[GPSLocationService] Background tracking already active');
+        this.isBackgroundTrackingActive = true;
+        return true;
+      }
+
+      if (!this.hasBackgroundPermission) {
+        console.log('[GPSLocationService] No background permission, cannot start tracking');
+        return false;
+      }
+
+      await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+        accuracy: Location.Accuracy.Balanced,
+        timeInterval: 5 * 60 * 1000,       // Svakih 5 minuta
+        distanceInterval: 100,               // Ili na 100m pomeranja
+        deferredUpdatesInterval: 5 * 60 * 1000,
+        deferredUpdatesDistance: 100,
+        showsBackgroundLocationIndicator: true,
+        foregroundService: {
+          notificationTitle: 'Robotik - Praćenje lokacije',
+          notificationBody: 'Vaša lokacija se prati tokom radnog vremena.',
+          notificationColor: '#2563eb',
+        },
+        activityType: Location.ActivityType.AutomotiveNavigation,
+        pausesUpdatesAutomatically: false,
+      });
+
+      this.isBackgroundTrackingActive = true;
+      console.log('[GPSLocationService] ✅ Background location tracking STARTED (5 min interval)');
+      return true;
+    } catch (error) {
+      console.error('[GPSLocationService] Error starting background tracking:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Zaustavi periodično praćenje lokacije
+   */
+  async stopBackgroundTracking() {
+    try {
+      const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      if (hasStarted) {
+        await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        console.log('[GPSLocationService] Background tracking STOPPED');
+      }
+      this.isBackgroundTrackingActive = false;
+    } catch (error) {
+      console.error('[GPSLocationService] Error stopping background tracking:', error);
     }
   }
 

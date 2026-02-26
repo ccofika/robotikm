@@ -36,7 +36,9 @@ class SyncQueueManager {
     this.STORAGE_KEY = 'syncQueue';
     this.MAX_RETRIES = 5;
     this.RETRY_DELAYS = [1000, 2000, 4000, 8000, 16000, 60000]; // Exponential backoff + max 1min
+    this.STALE_SYNC_TIMEOUT = 5 * 60 * 1000; // 5 minuta - ako je sync duži od ovoga, resetuj
     this.isProcessing = false;
+    this.processingStartedAt = null;
     this.listeners = [];
   }
 
@@ -150,6 +152,41 @@ class SyncQueueManager {
   // ==================== QUEUE PROCESSING ====================
 
   /**
+   * Resetuje zaglavljene "syncing" iteme koji su stariji od STALE_SYNC_TIMEOUT.
+   * Ovo sprečava permanentno zaglavljeni "sinhronizacija u toku" banner.
+   */
+  async resetStaleSyncingItems() {
+    try {
+      const queue = await this.getQueue();
+      const now = Date.now();
+      let changed = false;
+
+      const updatedQueue = queue.map(item => {
+        if (item.status === 'syncing' && item.lastAttempt) {
+          const timeSinceAttempt = now - item.lastAttempt;
+          if (timeSinceAttempt > this.STALE_SYNC_TIMEOUT) {
+            console.log(`[SyncQueue] Resetting stale syncing item: ${item.id} (${item.type}), stuck for ${Math.round(timeSinceAttempt / 1000)}s`);
+            changed = true;
+            return {
+              ...item,
+              status: item.retryCount >= item.maxRetries ? 'failed' : 'pending',
+              error: 'Sync timeout - automatski resetovano'
+            };
+          }
+        }
+        return item;
+      });
+
+      if (changed) {
+        await this.saveQueue(updatedQueue);
+        this.notifyListeners();
+      }
+    } catch (error) {
+      console.error('[SyncQueue] Error resetting stale syncing items:', error);
+    }
+  }
+
+  /**
    * Procesira red čekanja
    */
   async processQueue() {
@@ -161,14 +198,23 @@ class SyncQueueManager {
 
     // Proveri da li već procesira
     if (this.isProcessing) {
-      console.log('[SyncQueue] Queue already processing');
-      return;
+      // Stale lock detection - ako procesiramo duže od 5 minuta, resetuj
+      if (this.processingStartedAt && (Date.now() - this.processingStartedAt > this.STALE_SYNC_TIMEOUT)) {
+        console.warn('[SyncQueue] Processing lock stale, resetting...');
+        this.isProcessing = false;
+      } else {
+        console.log('[SyncQueue] Queue already processing');
+        return;
+      }
     }
 
     this.isProcessing = true;
-    console.log('[SyncQueue] Setting isProcessing = true');
+    this.processingStartedAt = Date.now();
 
     try {
+      // Prvo resetuj zaglavljene syncing iteme
+      await this.resetStaleSyncingItems();
+
       const queue = await this.getQueue();
       const pendingItems = queue.filter(item =>
         item.status === 'pending' ||
@@ -178,7 +224,7 @@ class SyncQueueManager {
       if (pendingItems.length === 0) {
         console.log('[SyncQueue] No pending items to process');
         this.isProcessing = false;
-        console.log('[SyncQueue] Setting isProcessing = false (no items)');
+        this.processingStartedAt = null;
         this.notifyListeners();
         return;
       }
@@ -188,6 +234,13 @@ class SyncQueueManager {
       // Procesira sve pending iteme redom
       for (let i = 0; i < pendingItems.length; i++) {
         const item = pendingItems[i];
+
+        // Proveri da li smo i dalje online tokom procesiranja
+        if (!networkMonitor.getIsOnline()) {
+          console.log('[SyncQueue] Went offline during processing, stopping');
+          break;
+        }
+
         console.log(`[SyncQueue] Processing item ${i + 1}/${pendingItems.length}: ${item.type}`);
 
         try {
@@ -204,12 +257,9 @@ class SyncQueueManager {
 
           // Ažuriraj status na 'syncing'
           await this.updateQueueItem(item.id, { status: 'syncing' });
-          console.log(`[SyncQueue] Item ${item.id} status set to 'syncing'`);
 
           // Procesira item pozivanjem syncService
-          console.log(`[SyncQueue] Calling processSyncItem for: ${item.type}`);
           const success = await this.processSyncItem(item);
-          console.log(`[SyncQueue] processSyncItem returned: ${success}`);
 
           if (success) {
             // Ukloni iz queue-a
@@ -239,9 +289,8 @@ class SyncQueueManager {
       console.error('[SyncQueue] Error processing queue:', error);
     } finally {
       this.isProcessing = false;
-      console.log('[SyncQueue] Setting isProcessing = false (finally block)');
+      this.processingStartedAt = null;
       this.notifyListeners();
-      console.log('[SyncQueue] Queue processing complete');
     }
   }
 

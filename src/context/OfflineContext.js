@@ -45,6 +45,18 @@ export const OfflineProvider = ({ children }) => {
     // Inicijalizuj network monitor
     networkMonitor.initialize();
 
+    // Pri startu aplikacije, pokreni storage cleanup
+    if (user?._id) {
+      import('../services/offlineStorage').then(module => {
+        const offlineStorage = module.default;
+        offlineStorage.performStorageCleanup(user._id).then(result => {
+          if (result) {
+            console.log(`[OfflineContext] Startup cleanup: pruned ${result.prunedWorkOrders} work orders, removed ${result.orphanKeysRemoved} orphan keys`);
+          }
+        });
+      });
+    }
+
     // Subscribe na network promene
     const unsubscribeNetwork = networkMonitor.addListener((online) => {
       setIsOnline(online);
@@ -59,7 +71,17 @@ export const OfflineProvider = ({ children }) => {
     // Subscribe na queue promene
     const unsubscribeQueue = syncQueue.addListener((stats) => {
       setQueueStats(stats);
-      setIsSyncing(stats.syncing > 0);
+
+      // isSyncing je true samo ako syncQueue aktivno procesira ILI ima syncing iteme
+      // Ali ako su syncing itemi stale (stariji od 5 min), ne smatraj ih aktivnim
+      const now = Date.now();
+      const STALE_THRESHOLD = 5 * 60 * 1000;
+      const activeSyncingItems = stats.items.filter(item =>
+        item.status === 'syncing' &&
+        item.lastAttempt &&
+        (now - item.lastAttempt) < STALE_THRESHOLD
+      );
+      setIsSyncing(activeSyncingItems.length > 0);
 
       // Ekstraktuj konflikte
       const conflictItems = stats.items.filter(item => item.conflictData);
@@ -81,7 +103,7 @@ export const OfflineProvider = ({ children }) => {
       appStateSubscription?.remove();
       networkMonitor.destroy();
     };
-  }, []);
+  }, [user?._id]);
 
   // ==================== APP STATE HANDLING ====================
 
@@ -91,17 +113,24 @@ export const OfflineProvider = ({ children }) => {
 
       // Proveri konekciju i pokreni sync ako je potrebno
       networkMonitor.checkConnection().then(online => {
-        if (online && queueStats.pending > 0) {
-          syncQueue.processQueue();
+        if (online) {
+          // Prvo resetuj zaglavljene syncing iteme
+          syncQueue.resetStaleSyncingItems().then(() => {
+            // Zatim procesiraj queue ako ima pending itema
+            if (queueStats.pending > 0) {
+              syncQueue.processQueue();
+            }
+          });
+
+          // Smart refresh: samo osvežavamo radne naloge (najvažnije za nove naloge)
+          // Ne radimo full refresh svih podataka na svaki foreground
+          if (user?._id) {
+            dataRepository.refreshWorkOrders(user._id).catch(error => {
+              console.error('[OfflineContext] Error refreshing work orders on app active:', error);
+            });
+          }
         }
       });
-
-      // Refresh data ako je korisnik ulogovan
-      if (user?._id && isOnline) {
-        dataRepository.forceFullRefresh(user._id).catch(error => {
-          console.error('[OfflineContext] Error refreshing data on app active:', error);
-        });
-      }
     }
   };
 
@@ -111,12 +140,29 @@ export const OfflineProvider = ({ children }) => {
     try {
       console.log('[OfflineContext] Device went online - starting sync');
 
-      // Pokreni sync queue
+      // 1. Resetuj zaglavljene syncing iteme
+      await syncQueue.resetStaleSyncingItems();
+
+      // 2. Pokreni storage cleanup pre refresha
+      if (user?._id) {
+        const offlineStorageModule = await import('../services/offlineStorage');
+        const offlineStorage = offlineStorageModule.default;
+        await offlineStorage.performStorageCleanup(user._id);
+      }
+
+      // 3. Pokreni sync queue (upload pending promene)
       await syncQueue.processQueue();
 
-      // Refresh data ako je korisnik ulogovan
+      // 4. Refresh radne naloge (najvažnije za nove naloge)
       if (user?._id) {
-        await dataRepository.forceFullRefresh(user._id);
+        await dataRepository.refreshWorkOrders(user._id);
+        // Oprema i materijali se refreshuju u pozadini - ne blokiramo
+        dataRepository.refreshEquipment(user._id).catch(err =>
+          console.error('[OfflineContext] Background equipment refresh error:', err)
+        );
+        dataRepository.refreshMaterials(user._id).catch(err =>
+          console.error('[OfflineContext] Background materials refresh error:', err)
+        );
       }
     } catch (error) {
       console.error('[OfflineContext] Error handling going online:', error);
@@ -136,10 +182,20 @@ export const OfflineProvider = ({ children }) => {
     try {
       setIsSyncing(true);
 
-      // Sync queue
+      // 1. Storage cleanup pre synca
+      if (user?._id) {
+        const offlineStorageModule = await import('../services/offlineStorage');
+        const offlineStorage = offlineStorageModule.default;
+        await offlineStorage.performStorageCleanup(user._id);
+      }
+
+      // 2. Resetuj zaglavljene iteme
+      await syncQueue.resetStaleSyncingItems();
+
+      // 3. Sync queue
       await syncService.syncAll();
 
-      // Refresh all data
+      // 4. Refresh all data
       if (user?._id) {
         await dataRepository.forceFullRefresh(user._id);
       }

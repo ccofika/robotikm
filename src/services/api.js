@@ -7,6 +7,7 @@ export const API_URL = 'https://robotikb-3eov.onrender.com';
 // Kreiraj axios instancu
 const api = axios.create({
   baseURL: API_URL,
+  timeout: 30000, // 30 sekundi default timeout - sprečava beskonačno čekanje
   headers: {
     'Content-Type': 'application/json',
   },
@@ -160,6 +161,7 @@ export const notificationsAPI = {
   markAsRead: (id) => api.put(`/api/android-notifications/${id}/read`),
   delete: (id) => api.delete(`/api/android-notifications/${id}`),
   registerToken: (pushToken) => api.post('/api/android-notifications/register-token', { pushToken }),
+  unregisterToken: () => api.delete('/api/android-notifications/unregister-token'),
 };
 
 // GPS API

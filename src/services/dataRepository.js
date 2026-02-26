@@ -28,21 +28,21 @@ class DataRepository {
    */
   async getWorkOrders(technicianId, forceRefresh = false) {
     try {
-      // 1. Vrati iz cache-a odmah
-      const cached = await offlineStorage.getWorkOrders(technicianId);
-
-      // 2. Ako je online i (force refresh ILI nema keširanih podataka), čekaj na server
-      if (networkMonitor.getIsOnline() && (forceRefresh || !cached || cached.length === 0)) {
-        console.log(`[DataRepository] Fetching work orders from server (forceRefresh=${forceRefresh}, cached=${cached?.length || 0})`);
-        return await this.refreshWorkOrders(technicianId);
+      // Ako je online, uvek dohvati sa servera (vraća SVE naloge za prikaz)
+      if (networkMonitor.getIsOnline()) {
+        console.log(`[DataRepository] Online - fetching work orders from server (forceRefresh=${forceRefresh})`);
+        try {
+          return await this.refreshWorkOrders(technicianId);
+        } catch (error) {
+          console.error('[DataRepository] Server fetch failed, falling back to cache:', error);
+          // Fallback na keš ako server ne radi
+          return await offlineStorage.getWorkOrders(technicianId);
+        }
       }
 
-      // 3. Ako ima keširane podatke i nije force refresh, refresh u pozadini
-      if (networkMonitor.getIsOnline() && !forceRefresh) {
-        this.refreshWorkOrders(technicianId);
-      }
-
-      return cached;
+      // Offline - vrati iz cache-a (samo aktivni + nedavno završeni)
+      console.log('[DataRepository] Offline - returning cached work orders');
+      return await offlineStorage.getWorkOrders(technicianId);
     } catch (error) {
       console.error('[DataRepository] Error getting work orders:', error);
       return [];
@@ -65,14 +65,30 @@ class DataRepository {
       const response = await workOrdersAPI.getTechnicianWorkOrders(technicianId);
       const workOrders = response.data;
 
-      // Sačuvaj u cache
-      await offlineStorage.saveWorkOrders(technicianId, workOrders);
+      // saveWorkOrders filtrira stare završene naloge za OFFLINE keš
+      // ali za prikaz vraćamo SVE podatke sa servera
+      try {
+        await offlineStorage.saveWorkOrders(technicianId, workOrders);
+      } catch (saveError) {
+        console.warn('[DataRepository] Error saving to offline cache (non-critical):', saveError);
+        // Ako je storage error, pokušaj cleanup pa retry
+        if (saveError.message && (saveError.message.includes('disk') || saveError.message.includes('full') || saveError.message.includes('SQLITE'))) {
+          try {
+            await offlineStorage.performStorageCleanup(technicianId);
+            await offlineStorage.saveWorkOrders(technicianId, workOrders);
+          } catch (retryError) {
+            console.error('[DataRepository] Retry after cleanup also failed:', retryError);
+          }
+        }
+      }
       await offlineStorage.setLastSync('workOrders', technicianId);
 
+      // Vrati SVE podatke sa servera za prikaz (ne filtrirane iz keša)
       return workOrders;
     } catch (error) {
       console.error('[DataRepository] Error refreshing work orders:', error);
-      // Vrati cached verziju ako refresh ne uspe
+
+      // Vrati cached verziju ako server fetch ne uspe
       return await offlineStorage.getWorkOrders(technicianId);
     } finally {
       this.refreshInProgress.delete(key);

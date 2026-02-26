@@ -12,23 +12,11 @@ import AppNavigator from './src/navigation/AppNavigator';
 import EquipmentConfirmationScreen from './src/screens/EquipmentConfirmationScreen';
 import OverdueWorkOrdersScreen from './src/screens/OverdueWorkOrdersScreen';
 import { NetworkStatusBanner, ConflictResolutionModal, SyncErrorModal } from './src/components/offline';
-import UpdateNotification from './src/components/UpdateNotification';
-import apkUpdateService from './src/services/apkUpdateService';
-import Constants from 'expo-constants';
-import NetInfo from '@react-native-community/netinfo';
 
-// Proveri da li app radi u Expo Go (tada react-native-fs ne radi)
-const isExpoGo = Constants.appOwnership === 'expo';
-
-// Dinamički učitaj ACRPhoneRecordingWatcher samo ako NIJE Expo Go
-let ACRPhoneRecordingWatcher = null;
-if (!isExpoGo) {
-  ACRPhoneRecordingWatcher = require('./src/services/ACRPhoneRecordingWatcher').default;
-}
-
-// VAŽNO: Registruj background notification task PRE inicijalizacije app-a
-// Ovo omogućava procesiranje notifikacija kada je app zatvoren ili u background-u
+// VAŽNO: Registruj background taskove PRE inicijalizacije app-a
+// Ovo omogućava procesiranje notifikacija i lokacije kada je app zatvoren ili u background-u
 import './src/services/backgroundTasks';
+import './src/services/backgroundLocationTask';
 // KRITIČNO: Importuj setupNotificationChannels funkciju
 import notificationService, { setupNotificationChannels } from './src/services/notificationService';
 
@@ -65,71 +53,33 @@ function AppContent() {
     });
   }, []);
 
-  // Start APK update checking when app starts
-  useEffect(() => {
-    apkUpdateService.startAutoUpdateCheck();
 
-    return () => {
-      apkUpdateService.stopAutoUpdateCheck();
-    };
-  }, []);
-
-  // ACR Phone Recording Watcher - inicijalizacija nakon login-a
-  // NAPOMENA: Radi samo u development/production buildu, NE u Expo Go
-  useEffect(() => {
-    // Preskoči ako smo u Expo Go (react-native-fs ne radi tamo)
-    if (isExpoGo || !ACRPhoneRecordingWatcher) {
-      console.log('[App] ACR Watcher skipped - running in Expo Go');
-      return;
-    }
-
-    const initializeWatcher = async () => {
-      if (user && user.phoneNumber) {
-        console.log('[App] User logged in:', user.name);
-        console.log('[App] User phone number:', user.phoneNumber);
-        console.log('[App] Initializing ACR Phone Recording Watcher...');
-
-        await ACRPhoneRecordingWatcher.initialize(user.phoneNumber);
-
-        // Setup network listener za offline queue sync
-        const unsubscribeNetInfo = NetInfo.addEventListener(state => {
-          if (state.isConnected && state.isInternetReachable) {
-            console.log('[App] Network connected, syncing offline recordings queue');
-            ACRPhoneRecordingWatcher.syncOfflineQueue();
-          }
-        });
-
-        return () => {
-          console.log('[App] Stopping ACR Watcher');
-          ACRPhoneRecordingWatcher.stopWatching();
-          unsubscribeNetInfo();
-        };
-      } else {
-        console.log('[App] Cannot initialize ACR Watcher - user or phoneNumber missing');
-        console.log('[App] User:', user);
-        console.log('[App] Phone number:', user?.phoneNumber);
-        ACRPhoneRecordingWatcher.stopWatching();
-      }
-    };
-
-    initializeWatcher();
-  }, [user]);
-
-  // Inicijalizacija GPS servisa nakon login-a
+  // Inicijalizacija GPS servisa i background tracking-a nakon login-a
   useEffect(() => {
     if (user && user.role === 'technician') {
       console.log('[App] Initializing GPS Location Service for technician...');
       gpsLocationService.initialize().then(success => {
         if (success) {
           console.log('[App] GPS Location Service initialized');
+          // Pokreni periodično praćenje lokacije u pozadini
+          gpsLocationService.startBackgroundTracking().then(trackingStarted => {
+            if (trackingStarted) {
+              console.log('[App] ✅ Background location tracking active');
+            } else {
+              console.warn('[App] ⚠️ Background tracking not started (no permission)');
+            }
+          });
         } else {
           console.warn('[App] GPS Location Service failed to initialize');
         }
       });
+    } else {
+      // Korisnik se izlogovao ili nije tehničar - zaustavi praćenje
+      gpsLocationService.stopBackgroundTracking();
     }
   }, [user]);
 
-  // Setup notification listener za sync_recordings i gps_location_request push notifikacije
+  // Setup notification listener za gps_location_request push notifikacije
   useEffect(() => {
     // Handler za razne tipove notifikacija
     const handleNotification = async (notification) => {
@@ -153,15 +103,6 @@ function AppContent() {
         return;
       }
 
-      // Sync recordings - samo ako ACRPhoneRecordingWatcher je dostupan
-      if (!isExpoGo && ACRPhoneRecordingWatcher) {
-        if (data?.type === 'sync_recordings' && data?.action === 'trigger_sync') {
-          console.log('[App] 📥 Received sync_recordings notification - triggering manual sync');
-          ACRPhoneRecordingWatcher.manualSync().then(result => {
-            console.log('[App] Manual sync result:', result);
-          });
-        }
-      }
     };
 
     // Postavi listener
@@ -249,9 +190,6 @@ function AppContent() {
     <>
       {/* Network Status Banner - Prikazuje se uvek na vrhu */}
       <NetworkStatusBanner />
-
-      {/* APK Update Notification - Shows above everything */}
-      <UpdateNotification />
 
       <AppNavigator onNavigationReady={(navRef) => setNavigationRef(navRef)} />
       <StatusBar style="auto" />
