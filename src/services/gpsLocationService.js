@@ -1,8 +1,10 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import { Platform, Alert, Linking } from 'react-native';
+import { Platform } from 'react-native';
 import { gpsAPI } from './api';
 import { BACKGROUND_LOCATION_TASK } from './backgroundLocationTask';
+import { storage } from '../utils/storage';
+import { requestBatteryOptimizationExemption, isAggressiveOEM } from '../utils/batteryOptimization';
 
 class GPSLocationService {
   constructor() {
@@ -260,7 +262,7 @@ class GPSLocationService {
       }
 
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-        accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.High,
         timeInterval: 5 * 60 * 1000,       // Svakih 5 minuta
         distanceInterval: 100,               // Ili na 100m pomeranja
         deferredUpdatesInterval: 5 * 60 * 1000,
@@ -270,6 +272,7 @@ class GPSLocationService {
           notificationTitle: 'Robotik - Praćenje lokacije',
           notificationBody: 'Vaša lokacija se prati tokom radnog vremena.',
           notificationColor: '#2563eb',
+          killServiceOnDestroy: false, // KRITIČNO: ne ubijaj servis kad se app zatvori
         },
         activityType: Location.ActivityType.AutomotiveNavigation,
         pausesUpdatesAutomatically: false,
@@ -277,6 +280,26 @@ class GPSLocationService {
 
       this.isBackgroundTrackingActive = true;
       console.log('[GPSLocationService] ✅ Background location tracking STARTED (5 min interval)');
+
+      // Sačuvaj da je tracking aktivan (za self-healing pri ponovnom otvaranju)
+      await storage.setItem('background_tracking_enabled', true);
+
+      // Na agresivnim OEM-ovima (Xiaomi, Samsung, Huawei...) zatraži battery exemption
+      // Radi samo jednom - sistemski dijalog za isključivanje battery optimization
+      const exemptionShown = await storage.getItem('battery_exemption_requested');
+      if (!exemptionShown && isAggressiveOEM()) {
+        await storage.setItem('battery_exemption_requested', true);
+        // Kratka pauza da se app stabilizuje pre otvaranja system dijaloga
+        setTimeout(async () => {
+          try {
+            await requestBatteryOptimizationExemption();
+            console.log('[GPSLocationService] Battery optimization exemption requested');
+          } catch (e) {
+            console.log('[GPSLocationService] Battery exemption request failed:', e.message);
+          }
+        }, 2000);
+      }
+
       return true;
     } catch (error) {
       console.error('[GPSLocationService] Error starting background tracking:', error);
@@ -295,8 +318,46 @@ class GPSLocationService {
         console.log('[GPSLocationService] Background tracking STOPPED');
       }
       this.isBackgroundTrackingActive = false;
+      await storage.setItem('background_tracking_enabled', false);
     } catch (error) {
       console.error('[GPSLocationService] Error stopping background tracking:', error);
+    }
+  }
+
+  /**
+   * Self-healing: proveri da li je tracking trebao biti aktivan ali je ugašen
+   * (npr. jer je OEM ubio servis). Ako jeste, restartuj ga.
+   * Poziva se svaki put kad se app otvori.
+   */
+  async ensureTrackingRunning() {
+    try {
+      const shouldBeTracking = await storage.getItem('background_tracking_enabled');
+      if (!shouldBeTracking) return false;
+
+      const isRunning = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      if (isRunning) {
+        console.log('[GPSLocationService] Self-heal check: tracking is running OK');
+        this.isBackgroundTrackingActive = true;
+        return true;
+      }
+
+      // Tracking je trebao da radi ali je ugašen - restartuj
+      console.log('[GPSLocationService] Self-heal: tracking was killed, restarting...');
+
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      const restarted = await this.startBackgroundTracking();
+      if (restarted) {
+        console.log('[GPSLocationService] Self-heal: tracking restarted successfully');
+      } else {
+        console.warn('[GPSLocationService] Self-heal: failed to restart tracking');
+      }
+      return restarted;
+    } catch (error) {
+      console.error('[GPSLocationService] Self-heal error:', error.message);
+      return false;
     }
   }
 

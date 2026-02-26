@@ -1,6 +1,7 @@
 import './global.css';
 import 'react-native-gesture-handler';
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
+import { AppState } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, AuthContext } from './src/context/AuthContext';
@@ -23,6 +24,9 @@ import notificationService, { setupNotificationChannels } from './src/services/n
 // Import GPS Location Service
 import gpsLocationService from './src/services/gpsLocationService';
 
+// Battery optimization guide za agresivne OEM-ove
+import BatteryOptimizationGuide, { useBatteryGuide } from './src/screens/BatteryOptimizationGuide';
+
 // Import debugging utilities (samo u dev modu)
 if (__DEV__) {
   require('./src/utils/clearSyncQueue');
@@ -34,6 +38,7 @@ function AppContent() {
   const { hasPendingEquipment, checkPendingEquipment } = useContext(EquipmentConfirmationContext);
   const { hasOverdueOrders, checkOverdueOrders } = useContext(OverdueWorkOrdersContext);
 
+  const { showGuide: showBatteryGuide, dismiss: dismissBatteryGuide } = useBatteryGuide();
   const [showEquipmentConfirmation, setShowEquipmentConfirmation] = useState(false);
   const [showOverdueWorkOrders, setShowOverdueWorkOrders] = useState(false);
   const [showSyncErrorModal, setShowSyncErrorModal] = useState(false);
@@ -77,6 +82,22 @@ function AppContent() {
       // Korisnik se izlogovao ili nije tehničar - zaustavi praćenje
       gpsLocationService.stopBackgroundTracking();
     }
+  }, [user]);
+
+  // Self-healing: kad se app vrati u foreground, proveri da li je tracking živ
+  const appState = useRef(AppState.currentState);
+  useEffect(() => {
+    if (!user || user.role !== 'technician') return;
+
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('[App] App came to foreground - running GPS self-heal check');
+        gpsLocationService.ensureTrackingRunning();
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => subscription.remove();
   }, [user]);
 
   // Setup notification listener za gps_location_request push notifikacije
@@ -207,6 +228,14 @@ function AppContent() {
         <OverdueWorkOrdersScreen
           visible={showOverdueWorkOrders}
           onNavigateToWorkOrder={handleNavigateToWorkOrder}
+        />
+      )}
+
+      {/* Battery Optimization Guide - prikazuje se jednom na agresivnim OEM-ovima */}
+      {user?.role === 'technician' && (
+        <BatteryOptimizationGuide
+          visible={showBatteryGuide}
+          onDismiss={dismissBatteryGuide}
         />
       )}
 
